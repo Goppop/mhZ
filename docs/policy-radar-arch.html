@@ -1,0 +1,220 @@
+NEW_FILE_CODE
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>政策雷达 · 系统架构图</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: system-ui, -apple-system, sans-serif;
+            background: #f5f5f5;
+            padding: 24px;
+            color: #1a1a1a;
+        }
+
+        .container {
+            max-width: 950px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 12px;
+            padding: 32px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+
+        h1 {
+            font-size: 28px;
+            margin-bottom: 16px;
+            color: #1a1a1a;
+        }
+
+        .tags {
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+            margin-bottom: 20px;
+        }
+
+        .tag {
+            font-size: 13px;
+            color: #666;
+            background: #f0f0f0;
+            padding: 4px 12px;
+            border-radius: 4px;
+        }
+
+        .divider {
+            height: 1px;
+            background: #e0e0e0;
+            margin: 20px 0;
+        }
+
+        svg {
+            display: block;
+            width: 100%;
+            height: auto;
+        }
+
+        .legend {
+            display: flex;
+            gap: 28px;
+            align-items: center;
+            flex-wrap: wrap;
+            margin-top: 20px;
+        }
+
+        .legend-title {
+            font-size: 13px;
+            font-weight: 600;
+            color: #666;
+        }
+
+        .legend-item {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+        }
+
+        .legend-text {
+            font-size: 13px;
+            color: #666;
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1>政策雷达 · 系统架构图</h1>
+    <div class="tags">
+        <span class="tag">内部小团队</span>
+        <span class="tag">定时 Cron 调度</span>
+        <span class="tag">SPA 前后端分离</span>
+        <span class="tag">系统内通知（可扩展）</span>
+    </div>
+    <div class="divider"></div>
+
+    <svg viewBox="0 0 900 475" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+            <marker id="arr" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto">
+                <path d="M0,1 L0,6 L6,3.5 z" fill="#999" />
+            </marker>
+        </defs>
+
+        <!-- Layer backgrounds -->
+        <rect x="2" y="8" width="896" height="74" rx="8" fill="#f0f0f0" opacity="0.45"/>
+        <text x="890" y="45" dominant-baseline="middle" text-anchor="end" font-size="10" font-weight="600" letter-spacing="0.6" fill="#999">① 来源输入</text>
+
+        <rect x="2" y="100" width="896" height="74" rx="8" fill="#f0f0f0" opacity="0.45"/>
+        <text x="890" y="137" dominant-baseline="middle" text-anchor="end" font-size="10" font-weight="600" letter-spacing="0.6" fill="#999">② 调度 · 接入</text>
+
+        <rect x="2" y="192" width="896" height="74" rx="8" fill="#f0f0f0" opacity="0.45"/>
+        <text x="890" y="229" dominant-baseline="middle" text-anchor="end" font-size="10" font-weight="600" letter-spacing="0.6" fill="#999">③ 采集流水线</text>
+
+        <rect x="2" y="284" width="896" height="74" rx="8" fill="#f0f0f0" opacity="0.45"/>
+        <text x="890" y="321" dominant-baseline="middle" text-anchor="end" font-size="10" font-weight="600" letter-spacing="0.6" fill="#999">④ 数据存储</text>
+
+        <rect x="2" y="376" width="896" height="74" rx="8" fill="#f0f0f0" opacity="0.45"/>
+        <text x="890" y="413" dominant-baseline="middle" text-anchor="end" font-size="10" font-weight="600" letter-spacing="0.6" fill="#999">⑤ 下游消费</text>
+
+        <!-- Edges -->
+        <path d="M 135 65 C 135 82.5, 425 82.5, 425 100" fill="none" stroke="#999" stroke-width="1.5" marker-end="url(#arr)" opacity="0.6"/>
+        <path d="M 300 65 C 300 82.5, 425 82.5, 425 100" fill="none" stroke="#999" stroke-width="1.5" marker-end="url(#arr)" opacity="0.6"/>
+        <path d="M 465 65 C 465 82.5, 425 82.5, 425 100" fill="none" stroke="#999" stroke-width="1.5" marker-end="url(#arr)" opacity="0.6"/>
+        <path d="M 630 65 C 630 82.5, 425 82.5, 425 100" fill="none" stroke="#999" stroke-width="1.5" marker-end="url(#arr)" opacity="0.6"/>
+        <path d="M 250 120 L 270 120" fill="none" stroke="#999" stroke-width="1.5" marker-end="url(#arr)" opacity="0.6"/>
+        <path d="M 580 120 L 630 120" fill="none" stroke="#999" stroke-width="1.5" stroke-dasharray="4 3" marker-end="url(#arr)" opacity="0.6"/>
+        <path d="M 425 140 C 425 166, 400 166, 400 192" fill="none" stroke="#999" stroke-width="1.5" marker-end="url(#arr)" opacity="0.6"/>
+        <path d="M 137.5 232 C 137.5 258, 137.5 258, 137.5 284" fill="none" stroke="#999" stroke-width="1.5" stroke-dasharray="4 3" marker-end="url(#arr)" opacity="0.6"/>
+        <path d="M 312.5 232 C 312.5 258, 312.5 258, 312.5 284" fill="none" stroke="#999" stroke-width="1.5" marker-end="url(#arr)" opacity="0.6"/>
+        <path d="M 487.5 232 C 487.5 258, 487.5 258, 487.5 284" fill="none" stroke="#999" stroke-width="1.5" stroke-dasharray="4 3" marker-end="url(#arr)" opacity="0.6"/>
+        <path d="M 645 232 C 645 258, 645 258, 645 284" fill="none" stroke="#999" stroke-width="1.5" stroke-dasharray="4 3" marker-end="url(#arr)" opacity="0.6"/>
+        <path d="M 312.5 324 C 312.5 350, 172.5 350, 172.5 376" fill="none" stroke="#999" stroke-width="1.5" marker-end="url(#arr)" opacity="0.6"/>
+        <path d="M 312.5 324 C 312.5 350, 402.5 350, 402.5 376" fill="none" stroke="#999" stroke-width="1.5" marker-end="url(#arr)" opacity="0.6"/>
+        <path d="M 487.5 324 C 487.5 350, 632.5 350, 632.5 376" fill="none" stroke="#999" stroke-width="1.5" marker-end="url(#arr)" opacity="0.6"/>
+        <path d="M 645 324 C 645 350, 632.5 350, 632.5 376" fill="none" stroke="#999" stroke-width="1.5" stroke-dasharray="4 3" marker-end="url(#arr)" opacity="0.6"/>
+
+        <!-- Nodes -->
+        <rect x="60" y="25" width="150" height="40" rx="6" fill="transparent" stroke="#999" stroke-width="1"/>
+        <text x="135" y="45" text-anchor="middle" dominant-baseline="middle" font-size="12" fill="#1a1a1a">RSS 订阅</text>
+
+        <rect x="225" y="25" width="150" height="40" rx="6" fill="transparent" stroke="#999" stroke-width="1"/>
+        <text x="300" y="45" text-anchor="middle" dominant-baseline="middle" font-size="12" fill="#1a1a1a">公开 API</text>
+
+        <rect x="390" y="25" width="150" height="40" rx="6" fill="transparent" stroke="#999" stroke-width="1"/>
+        <text x="465" y="45" text-anchor="middle" dominant-baseline="middle" font-size="12" fill="#1a1a1a">公开网页</text>
+
+        <rect x="555" y="25" width="150" height="40" rx="6" fill="transparent" stroke="#999" stroke-width="1"/>
+        <text x="630" y="45" text-anchor="middle" dominant-baseline="middle" font-size="12" fill="#1a1a1a">Python 脚本源</text>
+
+        <rect x="60" y="100" width="190" height="40" rx="6" fill="#e8e8e8" stroke="#999" stroke-width="1"/>
+        <text x="155" y="113" text-anchor="middle" dominant-baseline="middle" font-size="12" fill="#1a1a1a">调度引擎</text>
+        <text x="155" y="127" text-anchor="middle" dominant-baseline="middle" font-size="10" fill="#666">Cron / 手动触发</text>
+
+        <rect x="270" y="100" width="310" height="40" rx="6" fill="#1890ff" stroke="none"/>
+        <text x="425" y="120" text-anchor="middle" dominant-baseline="middle" font-size="12" font-weight="600" fill="white">Connector 适配层</text>
+
+        <rect x="630" y="100" width="130" height="40" rx="6" fill="#f0f0f0" stroke="#999" stroke-width="1"/>
+        <text x="695" y="120" text-anchor="middle" dominant-baseline="middle" font-size="12" fill="#1a1a1a">scripts/ 目录</text>
+
+        <rect x="60" y="192" width="680" height="40" rx="6" fill="#e8e8e8" stroke="#999" stroke-width="1"/>
+        <text x="400" y="212" text-anchor="middle" dominant-baseline="middle" font-size="12" fill="#1a1a1a">fetch  ›  parse  ›  normalize  ›  dedup  ›  enrich</text>
+
+        <rect x="60" y="284" width="155" height="40" rx="6" fill="#f0f0f0" stroke="#999" stroke-width="1"/>
+        <text x="137.5" y="304" text-anchor="middle" dominant-baseline="middle" font-size="12" fill="#1a1a1a">raw_payload</text>
+
+        <rect x="230" y="284" width="165" height="40" rx="6" fill="#1890ff" stroke="none"/>
+        <text x="312.5" y="304" text-anchor="middle" dominant-baseline="middle" font-size="12" font-weight="600" fill="white">policy_document</text>
+
+        <rect x="410" y="284" width="155" height="40" rx="6" fill="#e8e8e8" stroke="#999" stroke-width="1"/>
+        <text x="487.5" y="304" text-anchor="middle" dominant-baseline="middle" font-size="12" fill="#1a1a1a">ingest_task</text>
+
+        <rect x="580" y="284" width="130" height="40" rx="6" fill="#f0f0f0" stroke="#999" stroke-width="1"/>
+        <text x="645" y="304" text-anchor="middle" dominant-baseline="middle" font-size="12" fill="#1a1a1a">trace_log</text>
+
+        <rect x="80" y="376" width="185" height="40" rx="6" fill="#e8e8e8" stroke="#999" stroke-width="1"/>
+        <text x="172.5" y="396" text-anchor="middle" dominant-baseline="middle" font-size="12" fill="#1a1a1a">检索 / 匹配</text>
+
+        <rect x="310" y="376" width="185" height="40" rx="6" fill="#e8e8e8" stroke="#999" stroke-width="1"/>
+        <text x="402.5" y="396" text-anchor="middle" dominant-baseline="middle" font-size="12" fill="#1a1a1a">系统通知</text>
+
+        <rect x="540" y="376" width="185" height="40" rx="6" fill="#e8e8e8" stroke="#999" stroke-width="1"/>
+        <text x="632.5" y="396" text-anchor="middle" dominant-baseline="middle" font-size="12" fill="#1a1a1a">监控 / 告警</text>
+    </svg>
+
+    <div class="divider"></div>
+
+    <div class="legend">
+        <span class="legend-title">图例</span>
+        <div class="legend-item">
+            <svg width="32" height="12">
+                <line x1="0" y1="6" x2="32" y2="6" stroke="#999" stroke-width="1.5"/>
+            </svg>
+            <span class="legend-text">主数据流</span>
+        </div>
+        <div class="legend-item">
+            <svg width="32" height="12">
+                <line x1="0" y1="6" x2="32" y2="6" stroke="#999" stroke-width="1.5" stroke-dasharray="4 3"/>
+            </svg>
+            <span class="legend-text">辅助写入（审计 / 追踪）</span>
+        </div>
+        <div class="legend-item">
+            <div style="width: 14px; height: 10px; background: #1890ff; border-radius: 3px;"></div>
+            <span class="legend-text">核心节点</span>
+        </div>
+        <div class="legend-item">
+            <div style="width: 14px; height: 10px; background: #f0f0f0; border-radius: 3px; border: 1px solid #999;"></div>
+            <span class="legend-text">存储 / 辅助节点</span>
+        </div>
+        <div class="legend-item">
+            <div style="width: 14px; height: 10px; background: transparent; border-radius: 3px; border: 1px solid #999;"></div>
+            <span class="legend-text">外部来源类型</span>
+        </div>
+    </div>
+</div>
+</body>
+</html>

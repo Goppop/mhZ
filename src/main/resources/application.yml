@@ -1,0 +1,73 @@
+spring:
+  application:
+    name: policy-radar
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://localhost:3306/policy?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
+    username: root
+    password: 123456
+
+mybatis-plus:
+  configuration:
+    map-underscore-to-camel-case: true
+    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+  global-config:
+    db-config:
+      id-type: auto
+
+server:
+  port: 18080
+
+# 数据源配置
+govcn:
+  enabled: true
+  search-days: 7          # 搜索最近几天的数据
+  limit-per-keyword: 20   # 每个关键词最多抓取条数
+
+rsshub:
+  base-url: https://rsshub.app
+  enabled: true
+
+# 推送配置
+pushplus:
+  enabled: true
+  url: http://www.pushplus.plus/send
+
+# 预置关键词订阅
+policy-radar:
+  subscriptions:
+    enabled: true
+    presets:
+      - name: 数据要素
+        keyword: 数据要素
+        include-any: 数据要素,公共数据
+        match-fields: title,summary,content,issuing_agency
+
+  # 全网爬取基础设施配置
+  crawl:
+    # 允许爬取的域名后缀白名单
+    allowed-domains:
+      - .gov.cn
+      - .miit.gov.cn
+      - .ndrc.gov.cn
+      - .pbc.gov.cn
+      - .mof.gov.cn
+      - .mee.gov.cn
+      - .samr.gov.cn
+      - xinhuanet.com
+      - people.com.cn
+    # 每域 QPS 限制
+    qps-per-domain:
+      "sousuo.www.gov.cn": 0.5
+      default: 1.0
+    default-qps: 1.0
+    # User-Agent 轮换池
+    user-agents:
+      - "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36"
+      - "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36"
+      - "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:131.0) Gecko/20100101 Firefox/131.0"
+    respect-robots: false
+    frontier-batch-size: 20
+    max-retry: 3
+    fetch-timeout-ms: 15000
+
