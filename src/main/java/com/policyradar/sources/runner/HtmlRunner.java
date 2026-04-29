@@ -1,6 +1,5 @@
 package com.policyradar.sources.runner;
 
-import com.policyradar.crawler.service.CrawlerThreadPoolService;
 import com.policyradar.persistence.entity.PolicyDataSource;
 import com.policyradar.persistence.entity.PolicyExtractRule;
 import com.policyradar.persistence.entity.PolicyPaginationRule;
@@ -11,12 +10,13 @@ import com.policyradar.sources.html.ExtractedField;
 import com.policyradar.sources.html.FieldExtractor;
 import com.policyradar.sources.html.HtmlCrawlConfig;
 import com.policyradar.sources.html.HtmlCrawlConfigLoader;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
 import org.jsoup.select.Elements;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
@@ -32,8 +32,7 @@ import java.util.stream.Collectors;
  */
 @Slf4j
 @Component
-@RequiredArgsConstructor
-//todo 线程池管理 代理池管理 错误处理 放爬虫机制 重试机制
+//todo 线程池管理 代理池管理 错误处理 反爬虫机制 重试机制
 public class HtmlRunner implements SourceRunner {
 
     private static final String UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) " +
@@ -41,7 +40,15 @@ public class HtmlRunner implements SourceRunner {
 
     private final HtmlCrawlConfigLoader configLoader;
     private final FieldExtractor fieldExtractor;
-    private final CrawlerThreadPoolService crawlerThreadPoolService;
+    private final ThreadPoolTaskExecutor crawlerThreadPool;
+
+    public HtmlRunner(HtmlCrawlConfigLoader configLoader,
+                      FieldExtractor fieldExtractor,
+                      @Qualifier("crawlerThreadPool") ThreadPoolTaskExecutor crawlerThreadPool) {
+        this.configLoader = configLoader;
+        this.fieldExtractor = fieldExtractor;
+        this.crawlerThreadPool = crawlerThreadPool;
+    }
 
     /**
      * 返回此执行器支持的数据源类型标识
@@ -134,7 +141,7 @@ public class HtmlRunner implements SourceRunner {
                                 }
 
                                 return shouldSkipByDate(rawDoc, context) ? null : rawDoc;
-                            }, crawlerThreadPoolService);
+                            }, crawlerThreadPool);
 
                             itemFutures.add(itemFuture);
                         }
@@ -157,7 +164,7 @@ public class HtmlRunner implements SourceRunner {
                         log.error("处理列表页失败: {}", listUrl, e);
                         return Collections.emptyList();
                     }
-                }, crawlerThreadPoolService);
+                }, crawlerThreadPool);
 
                 pageFutures.add(future);
             }
