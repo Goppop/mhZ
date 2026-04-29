@@ -71,3 +71,12 @@ policy-radar:
     max-retry: 3
     fetch-timeout-ms: 15000
 
+  # 爬虫线程池配置
+  thread-pool:
+    core-pool-size: 8
+    maximum-pool-size: 20
+    queue-capacity: 100
+    keep-alive-time: 60
+    thread-name-prefix: crawler-pool-
+    allow-core-thread-time-out: false
+

@@ -1,5 +1,6 @@
 package com.policyradar.sources.runner;
 
+import com.policyradar.crawler.service.CrawlerThreadPoolService;
 import com.policyradar.persistence.entity.PolicyDataSource;
 import com.policyradar.persistence.entity.PolicyExtractRule;
 import com.policyradar.persistence.entity.PolicyPaginationRule;
@@ -21,6 +22,7 @@ import org.springframework.stereotype.Component;
 import java.io.IOException;
 import java.net.URI;
 import java.util.*;
+import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 
 /**
@@ -39,6 +41,7 @@ public class HtmlRunner implements SourceRunner {
 
     private final HtmlCrawlConfigLoader configLoader;
     private final FieldExtractor fieldExtractor;
+    private final CrawlerThreadPoolService crawlerThreadPoolService;
 
     /**
      * 返回此执行器支持的数据源类型标识
@@ -91,48 +94,89 @@ public class HtmlRunner implements SourceRunner {
                 .orElse(Collections.emptyList());
 
         try {
-            //爬取当前配置的所有列表页URL
+            //爬取当前配置的所有列表页URL（使用自定义线程池处理）
+            List<CompletableFuture<List<RawDoc>>> pageFutures = new ArrayList<>();
             for (String listUrl : buildListUrls(config)) {
-                //获取url响应Document对象
-                Document doc = request(listUrl, config.getListPage().getTimeoutMs());
+                CompletableFuture<List<RawDoc>> future = CompletableFuture.supplyAsync(() -> {
+                    try {
+                        //获取url响应Document对象
+                        Document doc = request(listUrl, config.getListPage().getTimeoutMs());
 
-                //依据config配置的爬取规则提取元素集
-                Elements items = doc.select(config.getListPage().getItemSelector());
+                        //依据config配置的爬取规则提取元素集
+                        Elements items = doc.select(config.getListPage().getItemSelector());
 
-                log.info("HTML 源 {} 列表页 {} 命中 {} 个 item",
-                        dataSource.getName(), listUrl, items.size());
-                //对元素集中的每个元素，依据提取规则提取字段，构建 RawDoc 对像
-                for (Element item : items) {
-                    RawDoc rawDoc = RawDoc.builder()
-                            .source(dataSource.getName())
-                            .metadata(new LinkedHashMap<>())
-                            .build();
-                    //做规则映射处理到RawDoc对象
-                    applyRules(rawDoc, item, listRules, listUrl);
-                    if (shouldSkipByDate(rawDoc, context)) {
-                        continue;
+                        log.info("HTML 源 {} 列表页 {} 命中 {} 个 item",
+                                dataSource.getName(), listUrl, items.size());
+
+                        List<CompletableFuture<RawDoc>> itemFutures = new ArrayList<>();
+                        //对元素集中的每个元素，依据提取规则提取字段，构建 RawDoc 对象（并行）
+                        for (Element item : items) {
+                            CompletableFuture<RawDoc> itemFuture = CompletableFuture.supplyAsync(() -> {
+                                RawDoc rawDoc = RawDoc.builder()
+                                        .source(dataSource.getName())
+                                        .metadata(new LinkedHashMap<>())
+                                        .build();
+
+                                //做规则映射处理到RawDoc对象
+                                applyRules(rawDoc, item, listRules, listUrl);
+
+                                if (shouldSkipByDate(rawDoc, context)) {
+                                    return null;
+                                }
+
+                                if (!detailRules.isEmpty() && !isBlank(rawDoc.getUrl())) {
+                                    enrichFromDetail(rawDoc, detailRules, config.getDetailPage().getTimeoutMs());
+                                }
+
+                                if (isBlank(rawDoc.getTitle()) && isBlank(rawDoc.getUrl())) {
+                                    log.debug("HTML 源 {} 跳过空 item: {}", dataSource.getName(), item.text());
+                                    return null;
+                                }
+
+                                return shouldSkipByDate(rawDoc, context) ? null : rawDoc;
+                            }, crawlerThreadPoolService);
+
+                            itemFutures.add(itemFuture);
+                        }
+
+                        //收集所有 item 结果
+                        List<RawDoc> pageDocs = new ArrayList<>();
+                        for (CompletableFuture<RawDoc> itemFuture : itemFutures) {
+                            try {
+                                RawDoc docResult = itemFuture.join();
+                                if (docResult != null) {
+                                    pageDocs.add(docResult);
+                                }
+                            } catch (Exception e) {
+                                log.error("处理 item 失败", e);
+                            }
+                        }
+
+                        return pageDocs;
+                    } catch (Exception e) {
+                        log.error("处理列表页失败: {}", listUrl, e);
+                        return Collections.emptyList();
                     }
+                }, crawlerThreadPoolService);
 
-                    if (!detailRules.isEmpty() && !isBlank(rawDoc.getUrl())) {
-                        enrichFromDetail(rawDoc, detailRules, config.getDetailPage().getTimeoutMs());
-                    }
+                pageFutures.add(future);
+            }
 
-                    if (isBlank(rawDoc.getTitle()) && isBlank(rawDoc.getUrl())) {
-                        log.debug("HTML 源 {} 跳过空 item: {}", dataSource.getName(), item.text());
-                        continue;
+            // 收集所有页面结果
+            for (CompletableFuture<List<RawDoc>> pageFuture : pageFutures) {
+                try {
+                    List<RawDoc> pageDocs = pageFuture.join();
+                    if (pageDocs != null) {
+                        docs.addAll(pageDocs);
                     }
-
-                    if (!shouldSkipByDate(rawDoc, context)) {
-                        docs.add(rawDoc);
-                    }
+                } catch (Exception e) {
+                    log.error("处理列表页失败", e);
                 }
             }
 
             log.debug("HTML 源 {} 抓取成功，获取到 {} 条新文档",
                     dataSource.getName(), docs.size());
             return docs;
-        } catch (IOException e) {
-            log.error("HTML 源 {} 连接失败: {}", dataSource.getName(), e.getMessage(), e);
         } catch (Exception e) {
             log.error("HTML 源 {} 抓取失败: {}", dataSource.getName(), e.getMessage(), e);
         }
