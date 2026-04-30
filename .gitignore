@@ -43,3 +43,9 @@ policy-radar.db
 identifier.sqlite1
 /.claude/
 /logs/
+
+### Frontend (Vue3 + Vite) ###
+frontend/node_modules/
+frontend/dist/
+frontend/.env.local
+frontend/.env.*.local
