@@ -42,4 +42,58 @@ public class HtmlCrawlConfig {
         }
         return rulesByPageId.getOrDefault(page.getId(), Collections.emptyList());
     }
+
+    /**
+     * 返回列表页规则，等价于 rulesFor(getListPage())。
+     */
+    public List<PolicyExtractRule> getListRules() {
+        return rulesFor(getListPage());
+    }
+
+    /**
+     * 返回详情页规则，无详情页时返回空列表。
+     */
+    public List<PolicyExtractRule> getDetailRules() {
+        PolicyCrawlPage dp = getDetailPage();
+        if (dp == null) {
+            return Collections.emptyList();
+        }
+        return rulesFor(dp);
+    }
+
+    /**
+     * 是否有详情页配置：详情页存在且有关联规则。
+     */
+    public boolean hasDetail() {
+        if (getDetailPage() == null) {
+            return false;
+        }
+        return !getDetailRules().isEmpty();
+    }
+
+    /**
+     * 列表页请求超时毫秒数，未配置时默认 15000。
+     */
+    public int getListTimeoutMs() {
+        PolicyCrawlPage lp = getListPage();
+        if (lp == null || lp.getTimeoutMs() == null) {
+            return 15_000;
+        }
+        return lp.getTimeoutMs();
+    }
+
+    /**
+     * 详情页请求超时毫秒数，未配置时默认 15000。
+     */
+    public int getDetailTimeoutMs() {
+        Optional<PolicyCrawlPage> dpOpt = detailPage();
+        if (dpOpt.isEmpty()) {
+            return 15_000;
+        }
+        PolicyCrawlPage dp = dpOpt.get();
+        if (dp.getTimeoutMs() == null) {
+            return 15_000;
+        }
+        return dp.getTimeoutMs();
+    }
 }

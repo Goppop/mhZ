@@ -1,72 +1,76 @@
 package com.policyradar.sources.runner;
 
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.policyradar.persistence.entity.PolicyDataSource;
 import com.policyradar.persistence.entity.PolicyExtractRule;
 import com.policyradar.persistence.entity.PolicyPaginationRule;
 import com.policyradar.sources.FetchContext;
 import com.policyradar.sources.RawDoc;
 import com.policyradar.sources.SourceRunner;
-import com.policyradar.sources.html.ExtractedField;
-import com.policyradar.sources.html.FieldExtractor;
+import com.policyradar.sources.html.ExtractedItem;
 import com.policyradar.sources.html.HtmlCrawlConfig;
 import com.policyradar.sources.html.HtmlCrawlConfigLoader;
+import com.policyradar.sources.html.HtmlExtractionEngine;
+import com.policyradar.sources.html.HtmlPageResponse;
+import com.policyradar.sources.html.HtmlRequestClient;
+import com.policyradar.sources.html.RawDocMapper;
 import lombok.extern.slf4j.Slf4j;
-import org.jsoup.Jsoup;
-import org.jsoup.nodes.Document;
-import org.jsoup.nodes.Element;
-import org.jsoup.select.Elements;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.stereotype.Component;
 
-import java.io.IOException;
-import java.net.URI;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
-import java.util.stream.Collectors;
+import java.util.function.Supplier;
 
 /**
- * HTML 静态页源执行器
+ * HTML 静态页源执行器。
  *
- * 使用 Jsoup 解析 HTML 页面，并通过结构化配置表提取列表和详情字段。
+ * 负责编排抓取流程（加载配置、构建分页 URL、调度并发、组装 RawDoc、增量过滤），
+ * 所有字段提取和 URL 补全已下沉到 HtmlExtractionEngine 和 HtmlRuleEvaluator。
  */
 @Slf4j
 @Component
-//todo 线程池管理 代理池管理 错误处理 反爬虫机制 重试机制
 public class HtmlRunner implements SourceRunner {
 
-    private static final String UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) " +
-            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36";
-
     private final HtmlCrawlConfigLoader configLoader;
-    private final FieldExtractor fieldExtractor;
+    private final HtmlRequestClient requestClient;
+    private final HtmlExtractionEngine extractionEngine;
+    private final RawDocMapper rawDocMapper;
+    private final ObjectMapper objectMapper;
     private final ThreadPoolTaskExecutor crawlerThreadPool;
 
     public HtmlRunner(HtmlCrawlConfigLoader configLoader,
-                      FieldExtractor fieldExtractor,
+                      HtmlRequestClient requestClient,
+                      HtmlExtractionEngine extractionEngine,
+                      RawDocMapper rawDocMapper,
+                      ObjectMapper objectMapper,
                       @Qualifier("crawlerThreadPool") ThreadPoolTaskExecutor crawlerThreadPool) {
         this.configLoader = configLoader;
-        this.fieldExtractor = fieldExtractor;
+        this.requestClient = requestClient;
+        this.extractionEngine = extractionEngine;
+        this.rawDocMapper = rawDocMapper;
+        this.objectMapper = objectMapper;
         this.crawlerThreadPool = crawlerThreadPool;
     }
 
-    /**
-     * 返回此执行器支持的数据源类型标识
-     *
-     * @return 固定返回 "HTML" 表示这是HTML数据源执行器
-     */
     @Override
     public String type() {
         return "HTML";
     }
 
     /**
-     * 执行HTML数据源的抓取入口方法
-     * 加载配置并判断是否有结构化规则，有则执行结构化抓取
+     * 执行 HTML 数据源抓取入口。
      *
-     * @param dataSource 数据源配置，包含数据源基本信息
-     * @param context 抓取上下文，包含上次抓取时间等信息
-     * @return 抓取到的原始文档列表，无数据时返回空列表
+     * @param dataSource 数据源配置
+     * @param context    抓取上下文，包含上次抓取时间等信息
+     * @return 抓取到的原始文档列表
      */
     @Override
     public List<RawDoc> fetch(PolicyDataSource dataSource, FetchContext context) {
@@ -76,218 +80,168 @@ public class HtmlRunner implements SourceRunner {
             return Collections.emptyList();
         }
 
-        return fetchByStructuredConfig(dataSource, context, config);
-    }
+        List<String> listUrls = buildListUrls(config);
+        if (listUrls.isEmpty()) {
+            return Collections.emptyList();
+        }
 
-    /**
-     * 使用结构化配置执行HTML页面抓取
-     * 这是核心抓取逻辑：遍历列表页 -> 提取条目 -> 应用提取规则 -> 抓取详情页 -> 过滤结果
-     *
-     * @param dataSource 数据源配置
-     * @param context 抓取上下文，用于日期过滤
-     * @param config HTML抓取配置，包含列表页、详情页和提取规则
-     * @return 抓取并处理后的原始文档列表
-     */
-    private List<RawDoc> fetchByStructuredConfig(
-            PolicyDataSource dataSource,
-            FetchContext context,
-            HtmlCrawlConfig config
-    ) {
-        //提取爬取规则配置
-        List<RawDoc> docs = new ArrayList<>();
-        List<PolicyExtractRule> listRules = config.rulesFor(config.getListPage());
-        List<PolicyExtractRule> detailRules = config.detailPage()
-                .map(config::rulesFor)
-                .orElse(Collections.emptyList());
-
-        try {
-            //爬取当前配置的所有列表页URL（使用自定义线程池处理）
-            List<CompletableFuture<List<RawDoc>>> pageFutures = new ArrayList<>();
-            for (String listUrl : buildListUrls(config)) {
-                CompletableFuture<List<RawDoc>> future = CompletableFuture.supplyAsync(() -> {
-                    try {
-                        //获取url响应Document对象
-                        Document doc = request(listUrl, config.getListPage().getTimeoutMs());
-
-                        //依据config配置的爬取规则提取元素集
-                        Elements items = doc.select(config.getListPage().getItemSelector());
-
-                        log.info("HTML 源 {} 列表页 {} 命中 {} 个 item",
-                                dataSource.getName(), listUrl, items.size());
-
-                        List<CompletableFuture<RawDoc>> itemFutures = new ArrayList<>();
-                        //对元素集中的每个元素，依据提取规则提取字段，构建 RawDoc 对象（并行）
-                        for (Element item : items) {
-                            CompletableFuture<RawDoc> itemFuture = CompletableFuture.supplyAsync(() -> {
-                                RawDoc rawDoc = RawDoc.builder()
-                                        .source(dataSource.getName())
-                                        .metadata(new LinkedHashMap<>())
-                                        .build();
-
-                                //做规则映射处理到RawDoc对象
-                                applyRules(rawDoc, item, listRules, listUrl);
-
-                                if (shouldSkipByDate(rawDoc, context)) {
-                                    return null;
-                                }
-
-                                if (!detailRules.isEmpty() && !isBlank(rawDoc.getUrl())) {
-                                    enrichFromDetail(rawDoc, detailRules, config.getDetailPage().getTimeoutMs());
-                                }
-
-                                if (isBlank(rawDoc.getTitle()) && isBlank(rawDoc.getUrl())) {
-                                    log.debug("HTML 源 {} 跳过空 item: {}", dataSource.getName(), item.text());
-                                    return null;
-                                }
-
-                                return shouldSkipByDate(rawDoc, context) ? null : rawDoc;
-                            }, crawlerThreadPool);
-
-                            itemFutures.add(itemFuture);
+        // 列表页级并发
+        List<CompletableFuture<List<RawDoc>>> pageFutures = new ArrayList<>();
+        for (int i = 0; i < listUrls.size(); i++) {
+            final String url = listUrls.get(i);
+            CompletableFuture<List<RawDoc>> future = CompletableFuture.supplyAsync(
+                    new Supplier<List<RawDoc>>() {
+                        @Override
+                        public List<RawDoc> get() {
+                            return fetchPage(dataSource, config, url, context);
                         }
+                    },
+                    crawlerThreadPool
+            );
+            pageFutures.add(future);
+        }
 
-                        //收集所有 item 结果
-                        List<RawDoc> pageDocs = new ArrayList<>();
-                        for (CompletableFuture<RawDoc> itemFuture : itemFutures) {
-                            try {
-                                RawDoc docResult = itemFuture.join();
-                                if (docResult != null) {
-                                    pageDocs.add(docResult);
-                                }
-                            } catch (Exception e) {
-                                log.error("处理 item 失败", e);
-                            }
-                        }
-
-                        return pageDocs;
-                    } catch (Exception e) {
-                        log.error("处理列表页失败: {}", listUrl, e);
-                        return Collections.emptyList();
-                    }
-                }, crawlerThreadPool);
-
-                pageFutures.add(future);
-            }
-
-            // 收集所有页面结果
-            for (CompletableFuture<List<RawDoc>> pageFuture : pageFutures) {
-                try {
-                    List<RawDoc> pageDocs = pageFuture.join();
-                    if (pageDocs != null) {
-                        docs.addAll(pageDocs);
-                    }
-                } catch (Exception e) {
-                    log.error("处理列表页失败", e);
+        List<RawDoc> allDocs = new ArrayList<>();
+        for (int i = 0; i < pageFutures.size(); i++) {
+            List<RawDoc> pageDocs = safeJoin(pageFutures.get(i));
+            if (pageDocs != null) {
+                for (int j = 0; j < pageDocs.size(); j++) {
+                    allDocs.add(pageDocs.get(j));
                 }
             }
-
-            log.debug("HTML 源 {} 抓取成功，获取到 {} 条新文档",
-                    dataSource.getName(), docs.size());
-            return docs;
-        } catch (Exception e) {
-            log.error("HTML 源 {} 抓取失败: {}", dataSource.getName(), e.getMessage(), e);
         }
 
-        return Collections.emptyList();
+        log.debug("HTML 源 {} 抓取成功，获取到 {} 条新文档",
+                dataSource.getName(), allDocs.size());
+        return allDocs;
     }
 
+    // ──────────────────────── 单页抓取 ────────────────────────
+
     /**
-     * 从详情页补充提取字段信息
-     * 请求详情页URL并应用详情页提取规则，将提取到的字段合并到已有文档对象中
-     *
-     * @param rawDoc 原始文档对象，需包含有效的详情页URL
-     * @param detailRules 详情页提取规则列表
-     * @param timeoutMs 请求超时时间（毫秒）
+     * 抓取单个列表页：请求页面 → 提取 items → 逐 item 并发处理。
      */
-    private void enrichFromDetail(
-            RawDoc rawDoc,
-            List<PolicyExtractRule> detailRules,
-            Integer timeoutMs
-    ) {
-        try {
-            Document detail = request(rawDoc.getUrl(), timeoutMs);
-            applyRules(rawDoc, detail, detailRules, rawDoc.getUrl());
-        } catch (Exception e) {
-            log.debug("详情页提取失败: {}", rawDoc.getUrl(), e);
+    private List<RawDoc> fetchPage(PolicyDataSource ds, HtmlCrawlConfig config,
+                                    String listUrl, FetchContext ctx) {
+        Map<String, String> headers = parseHeaders(config.getListPage().getHeaders());
+        HtmlPageResponse page = requestClient.fetch(listUrl, headers, config.getListTimeoutMs());
+        if (!page.isSuccess()) {
+            log.warn("HTML 源 {} 列表页请求失败: {} status={} error={}",
+                    ds.getName(), listUrl, page.getStatusCode(), page.getError());
+            return Collections.emptyList();
         }
+
+        List<PolicyExtractRule> listRules = config.getListRules();
+        if (listRules.isEmpty()) {
+            log.warn("HTML 源 {} 列表页无提取规则，跳过", ds.getName());
+            return Collections.emptyList();
+        }
+
+        List<ExtractedItem> items = extractionEngine.extractList(
+                page.getHtml(), config.getListPage().getItemSelector(), listRules, listUrl);
+
+        log.info("HTML 源 {} 列表页 {} 命中 {} 个 item", ds.getName(), listUrl, items.size());
+
+        // item 级并发
+        List<CompletableFuture<RawDoc>> itemFutures = new ArrayList<>();
+        for (int i = 0; i < items.size(); i++) {
+            final ExtractedItem item = items.get(i);
+            CompletableFuture<RawDoc> future = CompletableFuture.supplyAsync(
+                    new Supplier<RawDoc>() {
+                        @Override
+                        public RawDoc get() {
+                            return processItem(ds, config, item, ctx);
+                        }
+                    },
+                    crawlerThreadPool
+            );
+            itemFutures.add(future);
+        }
+
+        List<RawDoc> pageDocs = new ArrayList<>();
+        for (int i = 0; i < itemFutures.size(); i++) {
+            RawDoc doc = safeJoinItem(itemFutures.get(i));
+            if (doc != null) {
+                pageDocs.add(doc);
+            }
+        }
+
+        return pageDocs;
     }
 
+    // ──────────────────────── 单 item 处理 ────────────────────────
+
     /**
-     * 批量应用提取规则到HTML元素
-     * 按字段名分组规则，对每个字段尝试提取，提取成功则应用到文档对象
-     *
-     * @param rawDoc 目标文档对象，提取结果将设置到此对象
-     * @param root HTML根元素，从该元素开始选择
-     * @param rules 提取规则列表
-     * @param baseUrl 基础URL，用于解析相对路径链接
+     * 处理单个列表项：映射 → 日期过滤 → 详情补充 → 二次过滤。
      */
-    private void applyRules(RawDoc rawDoc, Element root, List<PolicyExtractRule> rules, String baseUrl) {
-        Map<String, List<PolicyExtractRule>> rulesByField = rules.stream()
-                .collect(Collectors.groupingBy(
-                        PolicyExtractRule::getFieldName,
-                        LinkedHashMap::new,
-                        Collectors.toList()
-                ));
-
-        for (Map.Entry<String, List<PolicyExtractRule>> entry : rulesByField.entrySet()) {
-            fieldExtractor.extractFirst(root, entry.getKey(), entry.getValue())
-                    .ifPresent(field -> applyField(rawDoc, field, baseUrl));
+    private RawDoc processItem(PolicyDataSource ds, HtmlCrawlConfig config,
+                                ExtractedItem listItem, FetchContext ctx) {
+        RawDoc raw = rawDocMapper.fromListItem(ds, listItem);
+        if (raw == null) {
+            return null;
         }
+
+        // 前置增量过滤：避免为旧文档拉详情页
+        if (shouldSkipByDate(raw, ctx)) {
+            return null;
+        }
+
+        // 详情页补充
+        if (config.hasDetail() && !isBlank(raw.getUrl())) {
+            enrichDetail(raw, config);
+        }
+
+        // 兜底：标题和 URL 都为空时丢弃
+        if (isBlank(raw.getTitle()) && isBlank(raw.getUrl())) {
+            log.debug("HTML 源 {} 跳过空 item", ds.getName());
+            return null;
+        }
+
+        // 详情页补充后可能更新了 publishDate，再次过滤
+        if (shouldSkipByDate(raw, ctx)) {
+            return null;
+        }
+
+        return raw;
     }
 
+    // ──────────────────────── 详情页补充 ────────────────────────
+
     /**
-     * 将单个提取字段应用到文档对象
-     * 根据字段名将值设置到RawDoc对应的属性或metadata中
-     * 特殊字段如url会做相对路径解析，publishDate会做日期解析
-     *
-     * @param rawDoc 目标文档对象
-     * @param field 已提取的字段对象
-     * @param baseUrl 基础URL，用于解析相对链接
+     * 请求详情页，提取字段并合并到 RawDoc。
      */
-    private void applyField(RawDoc rawDoc, ExtractedField field, String baseUrl) {
-        String fieldName = field.getFieldName();
-        String value = field.getValue();
-
-        switch (fieldName) {
-            case "title" -> rawDoc.setTitle(value);
-            case "url" -> rawDoc.setUrl(resolveUrl(baseUrl, value));
-            case "source" -> rawDoc.setSource(value);
-            case "summary" -> rawDoc.setSummary(value);
-            case "content" -> rawDoc.setContent(value);
-            case "issuingAgency" -> rawDoc.setIssuingAgency(value);
-            case "documentNumber" -> rawDoc.setDocumentNumber(value);
-            case "publishDate" -> rawDoc.setPublishDate(fieldExtractor.parseDate(value, field.getRule()));
-            default -> putMetadata(rawDoc, fieldName, value);
+    private void enrichDetail(RawDoc raw, HtmlCrawlConfig config) {
+        Map<String, String> headers = parseHeaders(config.getDetailPage().getHeaders());
+        HtmlPageResponse page = requestClient.fetch(raw.getUrl(), headers,
+                config.getDetailTimeoutMs());
+        if (!page.isSuccess()) {
+            log.debug("详情页请求失败: url={} status={}", raw.getUrl(), page.getStatusCode());
+            return;
         }
+
+        List<PolicyExtractRule> detailRules = config.getDetailRules();
+        if (detailRules.isEmpty()) {
+            return;
+        }
+
+        ExtractedItem detail = extractionEngine.extractDetail(
+                page.getHtml(), detailRules, raw.getUrl());
+
+        rawDocMapper.mergeDetail(raw, detail);
     }
 
-    /**
-     * 将自定义字段放入文档的metadata中
-     * 确保metadata不为null后添加键值对
-     *
-     * @param rawDoc 目标文档对象
-     * @param fieldName 字段名称
-     * @param value 字段值
-     */
-    private void putMetadata(RawDoc rawDoc, String fieldName, String value) {
-        if (rawDoc.getMetadata() == null) {
-            rawDoc.setMetadata(new LinkedHashMap<>());
-        }
-        rawDoc.getMetadata().put(fieldName, value);
-    }
+    // ──────────────────────── 分页 URL 构建 ────────────────────────
 
     /**
-     * 构建所有需要抓取的列表页URL
-     * 根据分页规则配置生成URL列表，支持NONE（单页）和URL_TEMPLATE（模板分页）模式
-     *
-     * @param config HTML抓取配置，包含分页规则
-     * @return 需要抓取的URL列表
+     * 根据分页规则构建所有列表页 URL。
      */
     private List<String> buildListUrls(HtmlCrawlConfig config) {
         String baseUrl = config.getListPage().getUrl();
         PolicyPaginationRule rule = config.getPaginationRule();
         if (rule == null || isBlank(rule.getMode()) || "NONE".equalsIgnoreCase(rule.getMode())) {
-            return List.of(baseUrl);
+            List<String> urls = new ArrayList<>();
+            urls.add(baseUrl);
+            return urls;
         }
 
         if ("URL_TEMPLATE".equalsIgnoreCase(rule.getMode()) && !isBlank(rule.getUrlTemplate())) {
@@ -301,32 +255,34 @@ public class HtmlRunner implements SourceRunner {
         }
 
         log.warn("暂不支持分页模式 {}，仅抓取第一页", rule.getMode());
-        return List.of(baseUrl);
+        List<String> urls = new ArrayList<>();
+        urls.add(baseUrl);
+        return urls;
     }
 
+    // ──────────────────────── 请求头解析 ────────────────────────
+
     /**
-     * 发起HTTP请求获取HTML文档
-     * 使用Jsoup库请求指定URL，设置User-Agent和超时时间
-     *
-     * @param url 目标URL
-     * @param timeoutMs 超时时间（毫秒），null时默认15秒
-     * @return 解析后的Jsoup Document对象
-     * @throws IOException 网络请求失败时抛出
+     * 从 JSON 字符串解析请求头。
+     * 解析失败时记日志并返回空 Map，不阻断抓取。
      */
-    private Document request(String url, Integer timeoutMs) throws IOException {
-        return Jsoup.connect(url)
-                .userAgent(UA)
-                .timeout(timeoutMs == null ? 15_000 : timeoutMs)
-                .get();
+    private Map<String, String> parseHeaders(String headersJson) {
+        if (isBlank(headersJson)) {
+            return Collections.emptyMap();
+        }
+        try {
+            return objectMapper.readValue(headersJson.trim(),
+                    new TypeReference<Map<String, String>>() {});
+        } catch (Exception e) {
+            log.warn("解析请求头 JSON 失败，将使用空 headers: {}", headersJson, e);
+            return Collections.emptyMap();
+        }
     }
 
+    // ──────────────────────── 增量过滤 ────────────────────────
+
     /**
-     * 根据发布日期判断是否跳过该文档
-     * 对比文档发布日期与上次抓取时间，早于上次抓取时间则跳过
-     *
-     * @param rawDoc 待判断的文档对象
-     * @param context 抓取上下文，包含上次抓取时间
-     * @return true表示应跳过此文档，false表示应保留
+     * 根据发布日期判断是否跳过该文档。
      */
     private boolean shouldSkipByDate(RawDoc rawDoc, FetchContext context) {
         return context.getLastPublishedAt() != null
@@ -334,32 +290,29 @@ public class HtmlRunner implements SourceRunner {
                 && rawDoc.getPublishDate().isBefore(context.getLastPublishedAt().toLocalDate());
     }
 
-    /**
-     * 解析相对URL为绝对URL
-     * 基于基础URL将相对路径转换为完整URL，处理失败时返回原URL
-     *
-     * @param baseUrl 基础URL
-     * @param url 待解析的URL（可能是相对路径）
-     * @return 解析后的绝对URL，解析失败返回原URL
-     */
-    private String resolveUrl(String baseUrl, String url) {
-        if (isBlank(url)) {
-            return url;
-        }
+    // ──────────────────────── CompletableFuture 安全汇合 ────────────────────────
+
+    private List<RawDoc> safeJoin(CompletableFuture<List<RawDoc>> future) {
         try {
-            return URI.create(baseUrl).resolve(url.trim()).toString();
+            List<RawDoc> result = future.join();
+            return result != null ? result : Collections.emptyList();
         } catch (Exception e) {
-            return url;
+            log.error("处理列表页失败", e);
+            return Collections.emptyList();
         }
     }
 
-    /**
-     * 判断字符串是否为空或空白
-     * null、空字符串或仅包含空白字符均返回true
-     *
-     * @param value 待检查的字符串
-     * @return true表示为空或空白，false表示非空
-     */
+    private RawDoc safeJoinItem(CompletableFuture<RawDoc> future) {
+        try {
+            return future.join();
+        } catch (Exception e) {
+            log.error("处理 item 失败", e);
+            return null;
+        }
+    }
+
+    // ──────────────────────── 工具方法 ────────────────────────
+
     private boolean isBlank(String value) {
         return value == null || value.isBlank();
     }
