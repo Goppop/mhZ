@@ -131,8 +131,16 @@ function handleFrameMessage(msg: FrameMessage) {
 
 function postToFrame(type: string, payload?: unknown) {
   const iframe = getIframe()
-  if (!iframe) return
-  iframe.contentWindow?.postMessage(
+  if (!iframe) {
+    console.warn('[SnapshotFrame] postToFrame 失败: iframe 为 null, type=' + type)
+    return
+  }
+  if (!iframe.contentWindow) {
+    console.warn('[SnapshotFrame] postToFrame 失败: contentWindow 为 null, type=' + type)
+    return
+  }
+  console.log('[SnapshotFrame] postToFrame: type=' + type + ' payload=' + (payload !== undefined ? JSON.stringify(payload) : '(无)'))
+  iframe.contentWindow.postMessage(
     { source: 'html-config-parent', type, payload },
     '*'
   )

@@ -94,7 +94,7 @@ import type {
   PageState,
   SelectionState,
 } from '@/types/htmlConfig'
-import { STEP_ORDER } from '@/types/htmlConfig'
+import { STEP_ORDER, SELECTION_MODE_META } from '@/types/htmlConfig'
 import { loadPage } from '@/api/htmlConfig'
 import { sanitizeHtml } from '@/utils/sanitizeHtml'
 import HtmlSnapshotFrame from '@/components/HtmlSnapshotFrame.vue'
@@ -161,7 +161,9 @@ function handleReload() {
 }
 
 function handleFrameReady() {
-  // iframe 注入脚本就绪
+  // iframe 注入脚本就绪后，立即同步当前模式
+  console.log('[Workbench] frameReady, 立即发送当前模式: ' + selectionState.currentMode)
+  sendModeToFrame(selectionState.currentMode)
 }
 
 function handleFrameError(msg: string) {
@@ -174,6 +176,7 @@ function handleHover(info: ClickedElementInfo) {
 }
 
 function handleSelect(sel: ElementSelection) {
+  console.log('[Workbench] handleSelect, mode=' + sel.mode + ' tag=' + (sel.info?.tagName || '?') + ' candidates=' + (sel.info?.extractableCandidates?.length || 0))
   selectionState.selections = {
     ...selectionState.selections,
     [sel.mode]: { ...sel, selectedCandidateIndex: sel.selectedCandidateIndex ?? -1 },
@@ -186,13 +189,36 @@ function handleSelect(sel: ElementSelection) {
   }
 }
 
-function handlePickCandidate(mode: SelectionMode, candidateIndex: number) {
-  const sel = selectionState.selections[mode]
-  if (!sel) return
+function handlePickCandidate(mode: SelectionMode, candidateIndex: number, sourceInfo?: ClickedElementInfo) {
+  console.log('[Workbench] handlePickCandidate, mode=' + mode + ' candIdx=' + candidateIndex + ' selExists=' + !!selectionState.selections[mode] + ' hasSourceInfo=' + !!sourceInfo)
+  let sel = selectionState.selections[mode]
+  if (!sel) {
+    if (sourceInfo) {
+      // 自动创建该字段的选择，使用当前详情面板中展示的元素信息
+      const newSel: ElementSelection = {
+        mode,
+        info: sourceInfo,
+        selectedAt: Date.now(),
+        selectedCandidateIndex: candidateIndex,
+      }
+      selectionState.selections = {
+        ...selectionState.selections,
+        [mode]: newSel,
+      }
+      console.log('[Workbench] 自动创建并绑定: mode=' + mode + ' candIdx=' + candidateIndex)
+      ElMessage.success('已自动创建「' + SELECTION_MODE_META[mode].label + '」并绑定')
+      return
+    }
+    console.warn('[Workbench] 绑定失败: 尚未选择「' + mode + '」对应的元素且无可用元素信息')
+    ElMessage.warning('请先在页面中点击对应元素')
+    return
+  }
   selectionState.selections = {
     ...selectionState.selections,
     [mode]: { ...sel, selectedCandidateIndex: candidateIndex },
   }
+  console.log('[Workbench] selectedCandidateIndex 已更新, mode=' + mode + ' newIdx=' + candidateIndex)
+  ElMessage.success('已绑定：' + SELECTION_MODE_META[mode].label)
 }
 
 function handleSwitchMode(mode: SelectionMode) {

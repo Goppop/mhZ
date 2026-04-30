@@ -231,6 +231,7 @@ export function buildInjectScript(currentMode: SelectionMode): string {
     target.classList.add('__crawler_selected__');
     target.classList.remove('__crawler_hover__');
     var info = buildInfo(target);
+    console.log('[iframe] click, CURRENT_MODE=' + CURRENT_MODE + ' target.tag=' + target.tagName + ' candidates=' + info.extractableCandidates.length);
     sendMessage('select', { mode: CURRENT_MODE, info: info, selectedAt: Date.now() });
   }, true);
 
@@ -252,6 +253,7 @@ export function buildInjectScript(currentMode: SelectionMode): string {
     var msg = e.data;
     if (!msg || msg.source !== 'html-config-parent') return;
     if (msg.type === 'set-mode') {
+      console.log('[iframe] set-mode 收到, 旧模式=' + CURRENT_MODE + ' 新模式=' + msg.payload);
       CURRENT_MODE = msg.payload;
     } else if (msg.type === 'clear-hover') {
       if (hoveredEl) { hoveredEl.classList.remove('__crawler_hover__'); hoveredEl = null; }

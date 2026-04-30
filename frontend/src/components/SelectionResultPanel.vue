@@ -25,12 +25,40 @@
       <span v-else class="empty-hint">鼠标悬停查看元素</span>
     </div>
 
-    <!-- 已选字段列表 -->
+    <!-- 列表项容器（ITEM 选择） -->
+    <div class="section" v-if="itemEntry">
+      <h3 class="panel-title">列表项容器</h3>
+      <div class="item-container-box">
+        <div class="item-selector-row">
+          <el-tag size="small" type="primary">{{ itemEntry.info.tagName }}</el-tag>
+          <code class="rule-selector item-sel">{{ itemEntry.info.cssPath.join(' > ') }}</code>
+        </div>
+        <div class="item-preview-text">{{ itemEntry.info.text || '(无文本)' }}</div>
+        <div class="item-actions">
+          <el-button size="small" text type="primary" @click="toggleDetail('ITEM')">
+            {{ showDetails === 'ITEM' ? '收起详情' : '元素详情' }}
+          </el-button>
+          <el-button size="small" text @click="$emit('reselect', 'ITEM')">重选</el-button>
+          <el-button size="small" text type="danger" @click="$emit('clear', 'ITEM')">删除</el-button>
+        </div>
+        <div v-if="showDetails === 'ITEM'" class="rule-detail">
+          <ElementInfoCard
+            :info="itemEntry.info"
+            :all-selections="selections"
+            :selection-mode="'ITEM'"
+            @pick-candidate="(mode: SelectionMode, idx: number) => $emit('pick-candidate', mode, idx, itemEntry!.info)"
+            @unpick-candidate="(mode: SelectionMode) => $emit('pick-candidate', mode, -1, itemEntry!.info)"
+          />
+        </div>
+      </div>
+    </div>
+
+    <!-- 提取规则（字段级规则） -->
     <div class="section">
       <div class="section-header">
-        <h3 class="panel-title">已选字段 ({{ selectionEntries.length }}/{{ STEP_ORDER.length }})</h3>
+        <h3 class="panel-title">提取规则 ({{ fieldEntries.length }})</h3>
         <el-button
-          v-if="hasSelections"
+          v-if="hasRules"
           size="small"
           text
           type="danger"
@@ -40,101 +68,72 @@
         </el-button>
       </div>
 
-      <div v-if="!hasSelections" class="empty-hint">
-        尚未选择任何字段
+      <div v-if="!hasRules" class="empty-hint">
+        在页面中点击元素，然后从可提取项中绑定到字段
       </div>
 
       <div
-        v-for="entry in selectionEntries"
+        v-for="entry in fieldEntries"
         :key="entry.mode"
-        class="selection-item"
-        :class="{ 'selection-current': entry.mode === currentMode }"
+        class="rule-item"
+        :class="{ 'rule-current': entry.mode === currentMode }"
       >
-        <div class="selection-header">
-          <div class="selection-title-row">
+        <!-- 规则摘要行 -->
+        <div class="rule-summary" @click="toggleDetail(entry.mode)">
+          <div class="rule-field">
             <el-tag :type="entry.mode === currentMode ? 'primary' : 'success'" size="small">
               {{ entry.label }}
             </el-tag>
-            <span class="selection-cand-count" v-if="entry.info.extractableCandidates.length">
-              {{ entry.info.extractableCandidates.length }} 个可提取项
+            <span v-if="entry.boundCandidate" class="rule-value">
+              {{ entry.boundCandidate.previewValue }}
             </span>
+            <span v-else class="rule-value-empty">等待绑定取值方式...</span>
           </div>
-          <div class="selection-actions">
-            <el-button size="small" text @click="$emit('reselect', entry.mode)">
-              重选
-            </el-button>
-            <el-button size="small" text type="danger" @click="$emit('clear', entry.mode)">
-              清除
-            </el-button>
+          <div class="rule-meta">
+            <el-tag v-if="entry.boundCandidate" size="small" :type="candidateShortType(entry.boundCandidate.type)" class="rule-vtype">
+              {{ entry.boundCandidate.type }}{{ entry.boundCandidate.attrName ? ' ' + entry.boundCandidate.attrName : '' }}
+            </el-tag>
+            <code class="rule-selector">{{ shortenPath(entry.info.cssPath) }}</code>
           </div>
-        </div>
-        <div class="selection-preview">
-          <el-tag size="small" type="info">{{ entry.info.tagName }}</el-tag>
-          <span class="selection-text">{{ entry.info.text || '(无文本)' }}</span>
         </div>
 
-        <!-- 详情展开 -->
-        <el-collapse v-if="showDetails === entry.mode" class="details-collapse">
-          <el-collapse-item title="元素详情" name="details">
-            <ElementInfoCard
-                :info="entry.info"
-                :all-selections="selections"
-                :selection-mode="entry.mode"
-                @pick-candidate="(mode: SelectionMode, idx: number) => $emit('pick-candidate', mode, idx)"
-                @unpick-candidate="(mode: SelectionMode) => $emit('pick-candidate', mode, -1)"
-              />
-          </el-collapse-item>
-        </el-collapse>
-        <div class="detail-toggles">
-          <el-button
-            v-if="showDetails !== entry.mode"
-            size="small"
-            text
-            type="primary"
-            @click="showDetails = entry.mode"
-          >
-            查看详情
+        <!-- 操作按钮 -->
+        <div class="rule-actions">
+          <!-- 已绑定：仅展示，不需要再展开 -->
+          <template v-if="entry.boundCandidate">
+            <span class="rule-done">已配置</span>
+          </template>
+          <!-- 未绑定：可以展开选候选 -->
+          <template v-else>
+            <el-button size="small" text type="primary" @click.stop="toggleDetail(entry.mode)">
+              {{ showDetails === entry.mode ? '收起' : '绑定取值' }}
+            </el-button>
+          </template>
+          <el-button size="small" text @click.stop="$emit('reselect', entry.mode)">
+            重选
           </el-button>
-          <el-button
-            v-if="showDetails === entry.mode"
-            size="small"
-            text
-            @click="showDetails = null"
-          >
-            收起详情
+          <el-button size="small" text type="danger" @click.stop="$emit('clear', entry.mode)">
+            删除
           </el-button>
+        </div>
+
+        <!-- 详情展开：仅未绑定规则显示，用于选择候选 -->
+        <div v-if="!entry.boundCandidate && showDetails === entry.mode" class="rule-detail">
+          <ElementInfoCard
+            :info="entry.info"
+            :all-selections="selections"
+            :selection-mode="entry.mode"
+            @pick-candidate="(mode: SelectionMode, idx: number) => $emit('pick-candidate', mode, idx, entry.info)"
+            @unpick-candidate="(mode: SelectionMode) => $emit('pick-candidate', mode, -1, entry.info)"
+          />
         </div>
       </div>
     </div>
 
-    <!-- 阶段三交付数据预览 -->
-    <div class="section output-section" v-if="hasSelections">
-      <h3 class="panel-title">交付阶段三的数据预览</h3>
-      <div class="output-item" v-for="item in phase3Output" :key="item.mode">
-        <div class="output-header">
-          <el-tag :type="item.selectedCandidate ? 'success' : 'info'" size="small">
-            {{ item.label }}
-          </el-tag>
-          <el-tag size="small" type="info">{{ item.elementTag }}</el-tag>
-          <code v-if="item.elementId !== '(无)'" class="output-id">#{{ item.elementId }}</code>
-        </div>
-        <div class="output-element">
-          <span class="output-label">元素:</span>
-          <code class="output-path">{{ item.elementCssPath.join(' > ') }}</code>
-        </div>
-        <div class="output-candidate" v-if="item.selectedCandidate">
-          <span class="output-label">取值:</span>
-          <el-tag :type="item.selectedCandidate.type === 'TEXT' ? 'primary' : item.selectedCandidate.type === 'ATTR' ? 'warning' : 'info'" size="small">
-            {{ item.selectedCandidate.type }}
-          </el-tag>
-          <span class="cand-val">{{ item.selectedCandidate.value }}</span>
-        </div>
-        <div class="output-candidate" v-else>
-          <span class="output-empty">⚠ 未选择可提取项</span>
-        </div>
-      </div>
-      <el-collapse class="output-raw-collapse">
-        <el-collapse-item title="JSON（原始数据）" name="raw">
+    <!-- JSON 原始数据（折叠） -->
+    <div class="section" v-if="hasRules">
+      <el-collapse v-model="activeCollapseNames">
+        <el-collapse-item title="JSON（阶段三交付）" name="raw">
           <pre class="raw-json">{{ JSON.stringify(phase3Output, null, 2) }}</pre>
         </el-collapse-item>
       </el-collapse>
@@ -158,10 +157,62 @@ defineEmits<{
   clear: [mode: SelectionMode]
   reselect: [mode: SelectionMode]
   clearAll: []
-  'pick-candidate': [mode: SelectionMode, candidateIndex: number]
+  'pick-candidate': [mode: SelectionMode, candidateIndex: number, info: ClickedElementInfo]
 }>()
 
 const modeMetaMap = SELECTION_MODE_META
+
+const showDetails = ref<SelectionMode | null>(null)
+const activeCollapseNames = ref<string[]>([])
+
+function toggleDetail(mode: SelectionMode) {
+  showDetails.value = showDetails.value === mode ? null : mode
+}
+
+function shortenPath(cssPath: string[]): string {
+  if (!cssPath || cssPath.length === 0) return ''
+  // 只取最后 4 段，前面用 … 代替
+  if (cssPath.length <= 4) return cssPath.join(' > ')
+  return '… > ' + cssPath.slice(-4).join(' > ')
+}
+
+const modeMeta = computed(() => SELECTION_MODE_META[props.currentMode])
+
+// ITEM 单独作为容器，不作为提取规则
+const itemEntry = computed(() => {
+  const sel = props.selections['ITEM']
+  if (!sel) return null
+  return {
+    mode: 'ITEM' as SelectionMode,
+    label: '列表项',
+    info: sel.info,
+    selectedAt: sel.selectedAt,
+    selectedCandidateIndex: sel.selectedCandidateIndex,
+    boundCandidate: null as any,
+  }
+})
+
+// 除 ITEM 外的字段级规则
+const fieldEntries = computed(() =>
+  STEP_ORDER
+    .filter((mode) => mode !== 'ITEM' && props.selections[mode])
+    .map((mode) => {
+      const sel = props.selections[mode]!
+      const candidate = sel.selectedCandidateIndex >= 0
+        ? sel.info.extractableCandidates[sel.selectedCandidateIndex]
+        : null
+      return {
+        mode,
+        label: SELECTION_MODE_META[mode].label,
+        info: sel.info,
+        selectedAt: sel.selectedAt,
+        selectedCandidateIndex: sel.selectedCandidateIndex,
+        boundCandidate: candidate,
+      }
+    })
+)
+
+const hasRules = computed(() => fieldEntries.value.length > 0 || !!itemEntry.value)
 
 const phase3Output = computed(() => {
   const items: any[] = []
@@ -189,30 +240,15 @@ const phase3Output = computed(() => {
   return items
 })
 
-const showDetails = ref<SelectionMode | null>(null)
-
-const modeMeta = computed(() => SELECTION_MODE_META[props.currentMode])
-
-const selectionEntries = computed(() =>
-  STEP_ORDER
-    .filter((mode) => props.selections[mode])
-    .map((mode) => ({
-      mode,
-      label: SELECTION_MODE_META[mode].label,
-      info: props.selections[mode]!.info,
-      selectedAt: props.selections[mode]!.selectedAt,
-      selectedCandidateIndex: props.selections[mode]!.selectedCandidateIndex,
-    }))
-)
-
-const hasSelections = computed(() => selectionEntries.value.length > 0)
-
-function recTagType(type: ExtractableCandidateType): string {
+function candidateShortType(type: ExtractableCandidateType): string {
   switch (type) {
     case 'TEXT': return 'primary'
     case 'ATTR': return 'warning'
     case 'HTML': return 'info'
   }
+}
+function recTagType(type: ExtractableCandidateType): string {
+  return candidateShortType(type)
 }
 </script>
 
@@ -287,22 +323,6 @@ function recTagType(type: ExtractableCandidateType): string {
   color: #606266;
 }
 
-/* Selection items */
-.selection-title-row {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.selection-cand-count {
-  font-size: 11px;
-  color: #909399;
-}
-
-.detail-toggles {
-  margin-top: 4px;
-}
-
 .hover-info {
   display: flex;
   align-items: center;
@@ -323,60 +343,131 @@ function recTagType(type: ExtractableCandidateType): string {
   color: #c0c4cc;
 }
 
-.selection-item {
-  padding: 10px;
-  margin-bottom: 8px;
+/* Extraction Rules */
+.rule-item {
+  padding: 8px 10px;
+  margin-bottom: 6px;
   border: 1px solid #ebeef5;
   border-radius: 6px;
   background: #fafafa;
+  transition: border-color 0.2s;
 }
 
-.selection-item.selection-current {
+.rule-item.rule-current {
   border-color: #409eff;
   background: #ecf5ff;
 }
 
-.selection-header {
+.rule-summary {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 6px;
+  flex-direction: column;
+  gap: 4px;
+  cursor: pointer;
 }
 
-.selection-actions {
-  display: flex;
-  gap: 2px;
-}
-
-.selection-preview {
+.rule-field {
   display: flex;
   align-items: center;
   gap: 8px;
 }
 
-.selection-text {
-  font-size: 12px;
-  color: #606266;
+.rule-value {
+  font-size: 13px;
+  color: #303133;
+  font-weight: 500;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  max-width: 180px;
+  max-width: 200px;
+  line-height: 1.3;
 }
 
-.details-collapse {
-  margin-top: 6px;
-}
-
-.raw-section {
+.rule-value-empty {
   font-size: 12px;
+  color: #e6a23c;
+  font-style: italic;
 }
 
-.raw-section h4 {
-  margin: 8px 0 4px;
+.rule-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.rule-vtype {
+  flex-shrink: 0;
+}
+
+.rule-selector {
+  font-size: 10px;
+  color: #909399;
+  background: #f5f7fa;
+  padding: 1px 4px;
+  border-radius: 3px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 220px;
+}
+
+.rule-actions {
+  display: flex;
+  gap: 2px;
+  margin-top: 6px;
+  padding-top: 4px;
+  border-top: 1px solid #f0f0f0;
+}
+
+.rule-done {
+  font-size: 11px;
+  color: #67c23a;
+  margin-right: 6px;
+}
+
+.rule-detail {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid #e4e7ed;
+}
+
+/* ITEM container box */
+.item-container-box {
+  border: 1px solid #b3d8ff;
+  border-radius: 6px;
+  padding: 10px;
+  background: #f5faff;
+}
+
+.item-selector-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.item-sel {
+  font-size: 11px;
+  color: #409eff;
+  max-width: 240px;
+}
+
+.item-preview-text {
   font-size: 12px;
   color: #606266;
+  margin-bottom: 6px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
+.item-actions {
+  display: flex;
+  gap: 2px;
+  padding-top: 4px;
+  border-top: 1px solid #d9ecff;
+}
+
+/* JSON output */
 .raw-json {
   background: #f5f7fa;
   padding: 8px;
@@ -385,71 +476,7 @@ function recTagType(type: ExtractableCandidateType): string {
   overflow-x: auto;
   white-space: pre-wrap;
   word-break: break-all;
-  max-height: 200px;
+  max-height: 300px;
   overflow-y: auto;
-}
-
-/* Phase 3 output preview */
-.output-section {
-  background: #fafafa;
-  border: 1px solid #e4e7ed;
-  border-radius: 6px;
-  padding: 12px;
-}
-
-.output-item {
-  padding: 8px 0;
-  border-bottom: 1px solid #f0f0f0;
-}
-
-.output-item:last-child {
-  border-bottom: none;
-}
-
-.output-header {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-bottom: 4px;
-}
-
-.output-id {
-  font-size: 11px;
-  color: #909399;
-}
-
-.output-element,
-.output-candidate {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-bottom: 2px;
-  font-size: 12px;
-}
-
-.output-label {
-  color: #909399;
-  flex-shrink: 0;
-  font-size: 11px;
-}
-
-.output-path {
-  font-size: 11px;
-  word-break: break-all;
-}
-
-.cand-val {
-  font-size: 11px;
-  color: #606266;
-  word-break: break-all;
-}
-
-.output-empty {
-  font-size: 11px;
-  color: #e6a23c;
-}
-
-.output-raw-collapse {
-  margin-top: 8px;
 }
 </style>

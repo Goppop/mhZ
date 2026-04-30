@@ -4,7 +4,7 @@
     <div class="info-section">
       <div class="info-row">
         <span class="info-label">标签</span>
-        <el-tag size="small" :type="info.computedVisible ? '' : 'warning'">
+        <el-tag size="small" :type="info.computedVisible ? 'info' : 'warning'">
           {{ info.tagName }}
         </el-tag>
         <el-tag v-if="info.id" size="small" type="info" class="id-tag">#{{ info.id }}</el-tag>
@@ -107,11 +107,11 @@
           </template>
           <div class="bind-action">
             <el-select
-              :model-value="''"
+              v-model="bindSelectValues[i]"
               placeholder="绑定到字段..."
               size="small"
               class="bind-select"
-              @change="(m: any) => emit('pick-candidate', m as SelectionMode, i)"
+              @change="(m: any) => onBindChange(i, m)"
             >
               <el-option
                 v-for="m in STEP_ORDER"
@@ -128,7 +128,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, reactive, nextTick } from 'vue'
 import type { ClickedElementInfo, ExtractableCandidateType, SelectionMode, ElementSelection } from '@/types/htmlConfig'
 import { SELECTION_MODE_META, STEP_ORDER } from '@/types/htmlConfig'
 
@@ -146,6 +146,19 @@ const emit = defineEmits<{
 }>()
 
 const modeMetaMap = SELECTION_MODE_META
+
+// 每个候选的 el-select 绑定值，key 为候选索引
+const bindSelectValues = reactive<Record<number, string>>({})
+
+function onBindChange(i: number, value: string) {
+  if (!value) return
+  console.log('[ElementInfoCard] 候选绑定, index=', i, 'targetMode=', value)
+  emit('pick-candidate', value as SelectionMode, i)
+  // 重置 select 显示，让用户可以看到"已绑定到"标签
+  nextTick(function () {
+    bindSelectValues[i] = ''
+  })
+}
 
 /**
  * Map candidate index → list of modes that have selected this candidate.
