@@ -1,187 +1,384 @@
-export type SelectionMode =
-  | 'ITEM'
-  | 'TITLE'
-  | 'URL'
-  | 'PUBLISH_DATE'
-  | 'SUMMARY'
-  | 'DETAIL_CONTENT'
-  | 'ISSUING_AGENCY'
-  | 'DOCUMENT_NUMBER'
+// ============================================================
+// PRD V2 第 10.3 节 — SelectionState
+// ============================================================
 
-export interface ModeMeta {
-  label: string
-  hint: string
-  /** 面板顶部提示：当前在选什么 */
-  panelTitle: string
-  /** 推荐的可提取项类型和说明 */
-  recommendations: { type: ExtractableCandidateType; attrName?: string; desc: string }[]
+export type PageRole = 'LIST' | 'DETAIL'
+
+export type ListFieldName = 'title' | 'url' | 'publishDate' | 'source' | 'summary'
+export type DetailFieldName = 'title' | 'content' | 'publishDate' | 'issuingAgency' | 'documentNumber'
+
+export const LIST_FIELD_LABELS: Record<ListFieldName, string> = {
+  title: '标题',
+  url: '原文链接',
+  publishDate: '发布日期',
+  source: '来源',
+  summary: '摘要',
 }
 
-export const SELECTION_MODE_META: Record<SelectionMode, ModeMeta> = {
-  ITEM: {
-    label: '列表项',
-    hint: '请点击一条完整的列表记录',
-    panelTitle: '正在选择：一条完整列表记录',
-    recommendations: [
-      { type: 'HTML', desc: '内部 HTML 用于确定列表项边界' },
-    ],
-  },
-  TITLE: {
-    label: '标题',
-    hint: '请点击列表项中的标题文字',
-    panelTitle: '正在选择：标题',
-    recommendations: [
-      { type: 'TEXT', desc: '用可见文本作为标题' },
-      { type: 'ATTR', attrName: 'title', desc: '用 title 属性作为标题（通常更完整）' },
-    ],
-  },
-  URL: {
-    label: '链接',
-    hint: '请点击可进入详情页的链接',
-    panelTitle: '正在选择：链接',
-    recommendations: [
-      { type: 'ATTR', attrName: 'href', desc: '推荐使用 href 属性作为链接地址' },
-    ],
-  },
-  PUBLISH_DATE: {
-    label: '发布日期',
-    hint: '请点击发布日期文字',
-    panelTitle: '正在选择：发布日期',
-    recommendations: [
-      { type: 'TEXT', desc: '用可见文本作为日期' },
-    ],
-  },
-  SUMMARY: {
-    label: '摘要',
-    hint: '请点击摘要内容，可选',
-    panelTitle: '正在选择：摘要（可选）',
-    recommendations: [
-      { type: 'TEXT', desc: '用可见文本作为摘要' },
-      { type: 'HTML', desc: '用内部 HTML 保留格式' },
-    ],
-  },
-  DETAIL_CONTENT: {
-    label: '详情正文',
-    hint: '请点击详情页正文区域',
-    panelTitle: '正在选择：详情正文',
-    recommendations: [
-      { type: 'HTML', desc: '用内部 HTML 保留正文格式' },
-      { type: 'TEXT', desc: '用纯文本作为正文' },
-    ],
-  },
-  ISSUING_AGENCY: {
-    label: '发布机构',
-    hint: '请点击发布机构文字',
-    panelTitle: '正在选择：发布机构',
-    recommendations: [
-      { type: 'TEXT', desc: '用可见文本作为发布机构' },
-    ],
-  },
-  DOCUMENT_NUMBER: {
-    label: '文号',
-    hint: '请点击文号文字',
-    panelTitle: '正在选择：文号',
-    recommendations: [
-      { type: 'TEXT', desc: '用可见文本作为文号' },
-    ],
-  },
+export const DETAIL_FIELD_LABELS: Record<DetailFieldName, string> = {
+  title: '完整标题',
+  content: '正文',
+  publishDate: '发布日期',
+  issuingAgency: '发布机构',
+  documentNumber: '文号',
 }
 
-export const STEP_ORDER: SelectionMode[] = [
-  'ITEM',
-  'TITLE',
-  'URL',
-  'PUBLISH_DATE',
-  'SUMMARY',
-  'DETAIL_CONTENT',
-  'ISSUING_AGENCY',
-  'DOCUMENT_NUMBER',
-]
+export type ValueType = 'TEXT' | 'ATTR' | 'HTML' | 'CONST' | 'REGEX'
 
-export type ExtractableCandidateType = 'TEXT' | 'ATTR' | 'HTML'
+export interface FieldRuleDraft {
+  fieldName: string
+  selector: string
+  valueType: ValueType
+  attrName: string | null
+  constValue: string | null
+  regexPattern: string | null
+  dateFormat: string | null
+  required: boolean
+  sortOrder: number
+}
+
+// ============================================================
+// 模式键（PRD 11.3 节）
+// ============================================================
+
+export type ListModeKey = 'item' | 'title' | 'url' | 'publishDate' | 'source' | 'summary'
+export type DetailModeKey = 'detail.title' | 'detail.content' | 'detail.publishDate' | 'detail.issuingAgency' | 'detail.documentNumber'
+export type NavModeKey = 'pagination' | 'view'
+export type ModeKey = ListModeKey | DetailModeKey | NavModeKey
+
+export const LIST_MODE_KEYS: ListModeKey[] = ['item', 'title', 'url', 'publishDate', 'source', 'summary']
+export const LIST_MODE_LABELS: Record<ListModeKey, string> = {
+  item: '列表项',
+  title: '标题',
+  url: '原文链接',
+  publishDate: '发布日期',
+  source: '来源',
+  summary: '摘要',
+}
+
+export const DETAIL_MODE_LABELS: Record<DetailModeKey, string> = {
+  'detail.title': '完整标题',
+  'detail.content': '正文',
+  'detail.publishDate': '发布日期',
+  'detail.issuingAgency': '发布机构',
+  'detail.documentNumber': '文号',
+}
+
+// ============================================================
+// SelectionState（PRD 10.3 节完整定义）
+// ============================================================
+
+export interface SelectionState {
+  meta: {
+    sourceName: string
+    sourceCron: string | null
+    enabled: boolean
+  }
+
+  list: {
+    url: string
+    snapshotId: string
+    statusCode: number
+    pageTitle: string
+    headers: Record<string, string>
+    timeoutMs: number
+    itemSelector: string | null
+    itemCount: number
+    matchedIndexPaths: number[][]
+  }
+
+  listFields: Partial<Record<ListFieldName, FieldRuleDraft[]>>
+
+  detail: {
+    enabled: boolean
+    sampleUrl: string | null
+    snapshotId: string | null
+    headers: Record<string, string>
+    timeoutMs: number
+    fields: Partial<Record<DetailFieldName, FieldRuleDraft[]>>
+  }
+
+  pagination: {
+    mode: 'NONE' | 'URL_TEMPLATE'
+    urlTemplate: string | null
+    startPage: number
+    maxPages: number
+  }
+
+  ui: {
+    advancedMode: boolean
+    currentMode: ModeKey
+    currentStep: number
+  }
+}
+
+export function createDefaultSelectionState(): SelectionState {
+  return {
+    meta: { sourceName: '', sourceCron: null, enabled: true },
+    list: {
+      url: '',
+      snapshotId: '',
+      statusCode: 0,
+      pageTitle: '',
+      headers: {},
+      timeoutMs: 15000,
+      itemSelector: null,
+      itemCount: 0,
+      matchedIndexPaths: [],
+    },
+    listFields: {},
+    detail: {
+      enabled: false,
+      sampleUrl: null,
+      snapshotId: null,
+      headers: {},
+      timeoutMs: 15000,
+      fields: {},
+    },
+    pagination: { mode: 'NONE', urlTemplate: null, startPage: 1, maxPages: 1 },
+    ui: { advancedMode: false, currentMode: 'item', currentStep: 1 },
+  }
+}
+
+// ============================================================
+// ClickedElementInfo（PRD 11.1 节）
+// ============================================================
 
 export interface ExtractableCandidate {
-  type: ExtractableCandidateType
-  /** 展示名称，如 "可见文本" / "href 属性" / "内部 HTML" */
-  label: string
-  /** 候选值，截断后用于展示 */
-  previewValue: string
-  /** 候选值原始长度 */
-  length: number
-  /** ATTR 类型对应属性名 */
+  type: 'TEXT' | 'ATTR' | 'HTML'
   attrName?: string
-  /** 是否推荐优先展示 */
-  recommended?: boolean
+  value: string
+  label?: string
+  hidden: boolean
+}
+
+export interface TruncatedMeta {
+  innerText: number
+  innerHtml: number
+  outerHtml: number
 }
 
 export interface ClickedElementInfo {
-  tagName: string
-  id?: string
-  classList: string[]
+  tag: string
+  id: string | null
+  classNames: string[]
   attributes: Record<string, string>
-  text: string
-  /** 内部 HTML 摘要，截断展示 */
+
+  innerText: string
   innerHtml: string
-  /** 外部 HTML 摘要，截断展示 */
   outerHtml: string
-  /** 元素当前是否可见 */
-  computedVisible: boolean
-  cssPath: string[]
+
   indexPath: number[]
-  nthPath?: string
-  bounding?: {
-    x: number
-    y: number
-    width: number
-    height: number
-  }
-  /** 从当前元素整理出的可提取项 */
+  cssPath: string
+  bounding: { x: number; y: number; width: number; height: number }
+
+  computedVisible: boolean
+
   extractableCandidates: ExtractableCandidate[]
+  __truncated: TruncatedMeta
 }
 
-export interface ElementSelection {
-  mode: SelectionMode
-  info: ClickedElementInfo
-  selectedAt: number
-  /** 用户选择的候选项在 extractableCandidates 中的索引，未选时为 -1 */
-  selectedCandidateIndex: number
+// ============================================================
+// iframe 通信协议（PRD 10.4 节）
+// ============================================================
+
+export type ParentToFrameMessage =
+  | { type: 'SET_MODE'; mode: ModeKey }
+  | { type: 'HIGHLIGHT_MATCHES'; indexPaths: number[][] }
+  | { type: 'CLEAR_HIGHLIGHT' }
+  | { type: 'CLEAR_SELECTION' }
+
+export type FrameToParentMessage =
+  | { type: 'READY' }
+  | { type: 'HOVER'; click: ClickedElementInfo }
+  | { type: 'CLICK'; click: ClickedElementInfo }
+
+// ============================================================
+// 后端 API 类型（PRD 第 8 章）
+// ============================================================
+
+// 通用响应包装（8.1.3）
+export interface ApiResponse<T> {
+  success: boolean
+  code: string
+  message: string
+  data: T
+  errors: ApiError[]
 }
 
-export interface FrameMessage {
-  source: 'html-config-frame'
-  type: 'hover' | 'select' | 'ready' | 'error'
-  payload?: unknown
+export interface ApiError {
+  field: string
+  code: string
+  message: string
 }
 
-export interface ParentMessage {
-  source: 'html-config-parent'
-  type: 'set-mode' | 'clear-hover' | 'set-selections' | 'clear-selection'
-  payload?: unknown
+// GET /capabilities（8.2）
+export interface CapabilitiesData {
+  listFields: FieldCap[]
+  detailFields: FieldCap[]
+  valueTypes: ValueType[]
+  paginationModes: string[]
+  limits: {
+    maxPages: number
+    snapshotTtlSeconds: number
+    maxSnapshotsInMemory: number
+  }
 }
 
-export interface PageLoadResult {
-  html: string
+export interface FieldCap {
+  name: string
+  label: string
+  required: boolean
+  defaultValueType: ValueType
+  defaultAttrName?: string
+}
+
+// POST /load-page（8.3）
+export interface LoadPageRequest {
+  url: string
+  headers?: Record<string, string>
+  timeoutMs?: number
+}
+
+export interface LoadPageData {
+  snapshotId: string
   finalUrl: string
   statusCode: number
   title: string
+  html: string
+  fetchedAt: string
   warnings: string[]
   error: string | null
 }
 
-export interface PageState {
-  sourceName: string
-  listUrl: string
-  html: string
-  title: string
-  finalUrl: string
-  statusCode: number
-  loading: boolean
-  warnings: string[]
-  errors: string[]
+// POST /suggest-item-selector（8.4）
+export interface SuggestItemRequest {
+  snapshotId: string
+  click: ClickedElementInfo
+  regionHintIndexPath?: number[]
 }
 
-export interface SelectionState {
-  currentMode: SelectionMode
-  selections: Partial<Record<SelectionMode, ElementSelection>>
-  hoveredElement: ClickedElementInfo | null
+export interface SelectorCandidate {
+  selector: string
+  itemCount: number
+  confidence: number
+  regionContainerSelector: string
+}
+
+export interface SuggestItemData {
+  primary: SelectorCandidate
+  candidates: SelectorCandidate[]
+  sampleItems: SampleItem[]
+  warnings: string[]
+}
+
+export interface SampleItem {
+  index: number
+  textPreview: string
+  indexPath: number[]
+}
+
+// POST /suggest-field-rule（8.5）
+export interface SuggestFieldRequest {
+  snapshotId: string
+  pageRole: PageRole
+  fieldName: string
+  click: ClickedElementInfo
+  itemSelector?: string
+  currentRules?: FieldRuleDraft[]
+}
+
+export interface FieldRuleCandidate {
+  selector: string
+  valueType: ValueType
+  attrName: string | null
+  confidence: number
+}
+
+export interface FieldSample {
+  itemIndex: number
+  value: string | null
+  raw: string
+  warnings: string[]
+}
+
+export interface SuggestFieldData {
+  primary: FieldRuleCandidate
+  candidates: FieldRuleCandidate[]
+  preview: {
+    fieldStats: { hitRate: number; blankCount: number; successCount: number }
+    samples: FieldSample[]
+  }
+  warnings: string[]
+}
+
+// POST /preview-list（8.6）
+export interface PreviewListRequest {
+  snapshotId: string
+  itemSelector: string
+  rules: FieldRuleDraft[]
+  paginationRule?: PaginationDraft | null
+}
+
+export interface PaginationDraft {
+  mode: 'NONE' | 'URL_TEMPLATE'
+  urlTemplate?: string
+  startPage: number
+  maxPages: number
+}
+
+export interface SampleFieldValue {
+  value: string | null
+  raw: string
+  warnings: string[]
+}
+
+export interface PreviewListData {
+  itemCount: number
+  samples: Array<{
+    itemIndex: number
+    fields: Record<string, SampleFieldValue | null>
+  }>
+  fieldStats: Record<string, { hitRate: number; blankCount: number }>
+  paginationPreview: {
+    urls: string[]
+    perPageItemCount: number[]
+  } | null
+  warnings: string[]
+}
+
+// POST /preview-detail（8.7）
+export interface PreviewDetailRequest {
+  detailSnapshotId: string
+  rules: FieldRuleDraft[]
+}
+
+export interface PreviewDetailData {
+  fields: Record<string, SampleFieldValue>
+  contentLength: number
+  contentPreview: string
+  fieldStats: Record<string, { hitRate: number }>
+  warnings: string[]
+}
+
+// POST /sources（8.8，阶段 B）
+export interface SaveSourceRequest {
+  dataSource: {
+    name: string
+    cronExpr: string | null
+    enabled: boolean
+  }
+  listPage: {
+    url: string
+    itemSelector: string
+    headers: Record<string, string>
+    timeoutMs: number
+  }
+  listRules: FieldRuleDraft[]
+  detailPage: {
+    headers: Record<string, string>
+    timeoutMs: number
+  } | null
+  detailRules: FieldRuleDraft[] | null
+  paginationRule: PaginationDraft
 }

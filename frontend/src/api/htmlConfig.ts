@@ -1,99 +1,114 @@
-import type { PageLoadResult } from '@/types/htmlConfig'
+// ============================================================
+// PRD V2 第 8 章 — 后端 API 封装
+// ============================================================
 
-const USE_MOCK = false
+import type {
+  ApiResponse,
+  CapabilitiesData,
+  LoadPageRequest,
+  LoadPageData,
+  SuggestItemRequest,
+  SuggestItemData,
+  SuggestFieldRequest,
+  SuggestFieldData,
+  PreviewListRequest,
+  PreviewListData,
+  PreviewDetailRequest,
+  PreviewDetailData,
+  SaveSourceRequest,
+} from '@/types/htmlConfig'
 
-export async function loadPage(url: string, timeoutMs = 15000): Promise<PageLoadResult> {
-  console.log('[loadPage] 开始加载, url=', url, 'mock模式=', USE_MOCK)
-  if (USE_MOCK) {
-    return loadMockPage(url)
-  }
-  const res = await fetch('/api/html-config/load-page', {
-    method: 'POST',
+const BASE = '/api/html-config'
+
+async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
+  const opts: RequestInit = {
+    method: method,
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ url, headers: {}, timeoutMs }),
-  })
-  if (!res.ok) {
-    throw new Error(`加载页面失败: ${res.status} ${res.statusText}`)
   }
-  return res.json()
+  if (body !== undefined) {
+    opts.body = JSON.stringify(body)
+  }
+  const resp = await fetch(BASE + path, opts)
+  const json: ApiResponse<T> = await resp.json()
+  if (!json.success) {
+    const err = new Error(json.message || '请求失败') as any
+    err.code = json.code
+    err.errors = json.errors
+    throw err
+  }
+  return json.data
 }
 
-async function loadMockPage(_url: string): Promise<PageLoadResult> {
-  console.log('[loadMockPage] 开始 mock 加载')
-  await new Promise((r) => setTimeout(r, 600))
+// ===================== 阶段 A =====================
 
-  const mockHtml = await fetch('/mock/list.html')
-  console.log('[loadMockPage] fetch /mock/list.html status=', mockHtml.status, 'ok=', mockHtml.ok)
-  if (!mockHtml.ok) {
-    console.log('[loadMockPage] 使用 FALLBACK_MOCK_HTML, 长度=', FALLBACK_MOCK_HTML.length)
-    return {
-      html: FALLBACK_MOCK_HTML,
-      finalUrl: _url || 'https://example.gov.cn/list.html',
-      statusCode: 200,
-      title: '示例列表页',
-      warnings: [],
-      error: null,
-    }
-  }
-
-  const htmlText = await mockHtml.text()
-  console.log('[loadMockPage] mock HTML 获取成功, 长度=', htmlText.length, '前100字符=', htmlText.substring(0, 100))
-  return {
-    html: htmlText,
-    finalUrl: _url || 'https://example.gov.cn/list.html',
-    statusCode: 200,
-    title: '示例列表页',
-    warnings: [],
-    error: null,
-  }
+// GET /capabilities（8.2）
+export function getCapabilities(): Promise<CapabilitiesData> {
+  return request('GET', '/capabilities')
 }
 
-const FALLBACK_MOCK_HTML = `<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-<meta charset="UTF-8">
-<title>示例列表页</title>
-<style>
-  body { font-family: sans-serif; padding: 20px; background: #f5f5f5; }
-  .news-list { max-width: 800px; margin: 0 auto; }
-  .news-item { background: #fff; margin-bottom: 16px; padding: 16px; border-radius: 6px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
-  .news-title { font-size: 18px; font-weight: bold; margin-bottom: 8px; }
-  .news-title a { color: #1a1a1a; text-decoration: none; }
-  .news-title a:hover { color: #409eff; }
-  .news-meta { font-size: 13px; color: #999; margin-bottom: 6px; }
-  .news-meta span { margin-right: 16px; }
-  .news-summary { font-size: 14px; color: #555; line-height: 1.6; }
-</style>
-</head>
-<body>
-<div class="news-list">
-  <div class="news-item" data-id="001">
-    <div class="news-title"><a href="/detail/001.html">关于进一步做好数字经济相关工作的通知</a></div>
-    <div class="news-meta">
-      <span class="news-agency">国家发改委</span>
-      <span class="news-date">2026-04-28</span>
-      <span class="news-docnum">发改数字〔2026〕12号</span>
-    </div>
-    <div class="news-summary">为深入贯彻党中央、国务院关于发展数字经济的决策部署，进一步做好数字经济相关工作，现就有关事项通知如下……</div>
-  </div>
-  <div class="news-item" data-id="002">
-    <div class="news-title"><a href="/detail/002.html">关于印发《数据安全管理办法》的通知</a></div>
-    <div class="news-meta">
-      <span class="news-agency">工业和信息化部</span>
-      <span class="news-date">2026-04-25</span>
-      <span class="news-docnum">工信部信管〔2026〕45号</span>
-    </div>
-    <div class="news-summary">为加强数据安全管理，保障数据安全，促进数据开发利用，制定本办法……</div>
-  </div>
-  <div class="news-item" data-id="003">
-    <div class="news-title"><a href="/detail/003.html">2026年第一季度信息通信行业发展情况通报</a></div>
-    <div class="news-meta">
-      <span class="news-agency">工业和信息化部</span>
-      <span class="news-date">2026-04-20</span>
-      <span class="news-docnum">工信部通函〔2026〕88号</span>
-    </div>
-    <div class="news-summary">2026年第一季度，信息通信行业运行总体平稳，业务收入稳步增长，网络基础设施持续完善……</div>
-  </div>
-</div>
-</body>
-</html>`
+// POST /load-page（8.3）
+export function loadPage(req: LoadPageRequest): Promise<LoadPageData> {
+  return request('POST', '/load-page', req)
+}
+
+// POST /suggest-item-selector（8.4）
+export function suggestItemSelector(req: SuggestItemRequest): Promise<SuggestItemData> {
+  return request('POST', '/suggest-item-selector', req)
+}
+
+// POST /suggest-field-rule（8.5）
+export function suggestFieldRule(req: SuggestFieldRequest): Promise<SuggestFieldData> {
+  return request('POST', '/suggest-field-rule', req)
+}
+
+// POST /preview-list（8.6）
+export function previewList(req: PreviewListRequest): Promise<PreviewListData> {
+  return request('POST', '/preview-list', req)
+}
+
+// POST /preview-detail（8.7）
+export function previewDetail(req: PreviewDetailRequest): Promise<PreviewDetailData> {
+  return request('POST', '/preview-detail', req)
+}
+
+// ===================== 阶段 B =====================
+
+// GET /sources
+export function getSources(): Promise<any[]> {
+  return request('GET', '/sources')
+}
+
+// GET /sources/{id}
+export function getSource(id: number): Promise<any> {
+  return request('GET', '/sources/' + id)
+}
+
+// POST /sources
+export function createSource(req: SaveSourceRequest): Promise<{ id: number }> {
+  return request('POST', '/sources', req)
+}
+
+// PUT /sources/{id}
+export function updateSource(id: number, req: SaveSourceRequest): Promise<void> {
+  return request('PUT', '/sources/' + id, req)
+}
+
+// POST /sources/{id}/copy
+export function copySource(id: number): Promise<{ id: number }> {
+  return request('POST', '/sources/' + id + '/copy')
+}
+
+// DELETE /sources/{id}
+export function deleteSource(id: number): Promise<void> {
+  return request('DELETE', '/sources/' + id)
+}
+
+// POST /sources/{id}/toggle
+export function toggleSource(id: number): Promise<void> {
+  return request('POST', '/sources/' + id + '/toggle')
+}
+
+// POST /sources/{id}/run（8.9）
+export function runSource(id: number): Promise<any> {
+  return request('POST', '/sources/' + id + '/run')
+}
