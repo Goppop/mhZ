@@ -1,7 +1,9 @@
 package com.policyradar.controller;
 
 import com.policyradar.api.htmlconfig.ClickedElementInfo;
+import com.policyradar.api.htmlconfig.HtmlConfigSaveRequest;
 import com.policyradar.sources.html.FieldRuleDraft;
+import com.policyradar.sources.html.HtmlConfigPersistenceService;
 import com.policyradar.sources.html.HtmlPageResponse;
 import com.policyradar.sources.html.HtmlRequestClient;
 import com.policyradar.sources.html.PaginationDraft;
@@ -32,6 +34,7 @@ public class HtmlConfigController {
     private final HtmlSnapshotCache snapshotCache;
     private final HtmlSelectorGenerator selectorGenerator;
     private final HtmlConfigPreviewService previewService;
+    private final HtmlConfigPersistenceService persistenceService;
 
     // ---- 通用响应包装 ----
 
@@ -379,6 +382,46 @@ public class HtmlConfigController {
         data.put("fieldStats", result.getFieldStats());
         data.put("warnings", result.getWarnings() != null ? result.getWarnings() : List.of());
         return ok(data);
+    }
+
+    // ==================== 8.8 POST /sources（阶段 B） ====================
+
+    @PostMapping("/sources")
+    public ResponseEntity<Map<String, Object>> createSource(@RequestBody HtmlConfigSaveRequest req) {
+        // 校验
+        List<Map<String, String>> errors = persistenceService.validate(req);
+        if (!errors.isEmpty()) {
+            return error("VALIDATION_ERROR", errors.get(0).get("message"), errors);
+        }
+
+        try {
+            Long dsId = persistenceService.saveFullConfig(req);
+            log.info("[sources] 保存成功 dataSourceId={}", dsId);
+            return ok(Map.of("id", dsId));
+        } catch (Exception e) {
+            log.error("[sources] 保存失败", e);
+            return error("INTERNAL_ERROR", "保存失败: " + e.getMessage(), List.of());
+        }
+    }
+
+    // ==================== 8.9 POST /sources/{id}/run（阶段 B） ====================
+
+    @PostMapping("/sources/{id:\\d+}/run")
+    public ResponseEntity<Map<String, Object>> runSource(@PathVariable Long id) {
+        try {
+            HtmlConfigPersistenceService.RunResult result = persistenceService.runNow(id);
+            if (!result.isSuccess()) {
+                return error("INTERNAL_ERROR", result.getError(), List.of());
+            }
+            Map<String, Object> data = new LinkedHashMap<>();
+            data.put("fetchedCount", result.getFetchedCount());
+            data.put("elapsedMs", result.getElapsedMs());
+            data.put("recentDocs", result.getRecentDocs());
+            return ok(data);
+        } catch (Exception e) {
+            log.error("[run] 试跑失败 dataSourceId={}", id, e);
+            return error("INTERNAL_ERROR", "试跑失败: " + e.getMessage(), List.of());
+        }
     }
 
     // ---- 辅助方法 ----

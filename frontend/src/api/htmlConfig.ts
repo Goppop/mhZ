@@ -108,7 +108,17 @@ export function toggleSource(id: number): Promise<void> {
   return request('POST', '/sources/' + id + '/toggle')
 }
 
-// POST /sources/{id}/run（8.9）
-export function runSource(id: number): Promise<any> {
-  return request('POST', '/sources/' + id + '/run')
+// POST /api/crawl/run/{id} — 复用 CrawlController 现有试跑接口（非 html-config 前缀）
+export async function runSource(id: number): Promise<{
+  status: string
+  fetched: number
+  unique: number
+  matched: number
+  errors: number
+  durationMs: number
+}> {
+  const resp = await fetch('/api/crawl/run/' + id, { method: 'POST' })
+  const json = await resp.json()
+  if (!json.success) throw new Error(json.error || '试跑失败')
+  return json.data
 }

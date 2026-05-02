@@ -26,6 +26,20 @@
           @click="switchMode('pagination')"
         >分页</el-button>
       </div>
+      <div class="action-buttons">
+        <el-button
+          type="success" size="small"
+          :disabled="!canSave"
+          :loading="saving"
+          @click="onSave"
+        >保存配置</el-button>
+        <el-button
+          type="warning" size="small"
+          :disabled="savedId === null"
+          :loading="running"
+          @click="onRun"
+        >立即试跑</el-button>
+      </div>
       <el-switch v-model="state.ui.advancedMode" size="small" active-text="高级" inactive-text="默认" />
     </div>
 
@@ -80,6 +94,18 @@
           :previewing="paginationPreviewing" :preview-item-counts="paginationPreviewCounts"
           @change="onPaginationChange" @preview="onPaginationPreview"
         />
+        <!-- 试跑结果 -->
+        <div v-if="runResult" class="run-result-panel">
+          <h3 class="section-title">试跑结果</h3>
+          <div class="run-stats">
+            <span>状态：<b :class="runResult.status === 'OK' ? 'status-ok' : 'status-err'">{{ runResult.status }}</b></span>
+            <span>抓取 <b>{{ runResult.fetched }}</b> 条</span>
+            <span>入库 <b>{{ runResult.unique }}</b> 条</span>
+            <span>匹配 <b>{{ runResult.matched }}</b> 条</span>
+            <span v-if="runResult.errors > 0" class="err-count">错误 <b>{{ runResult.errors }}</b></span>
+            <span>耗时 <b>{{ runResult.durationMs }}ms</b></span>
+          </div>
+        </div>
       </aside>
     </div>
   </div>
@@ -93,11 +119,11 @@
  * 状态：SelectionState（PRD V2 10.3 节）驱动全部 UI。
  */
 
-import { reactive, ref } from 'vue'
+import { computed, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 
 // ---------- types ----------
-import type { FieldRuleDraft, ClickedElementInfo } from '@/types/htmlConfig'
+import type { FieldRuleDraft, ClickedElementInfo, PaginationDraft, SaveSourceRequest } from '@/types/htmlConfig'
 import {
   createDefaultSelectionState,
   LIST_MODE_LABELS, LIST_MODE_KEYS, DETAIL_MODE_LABELS,
@@ -106,7 +132,7 @@ import {
 } from '@/types/htmlConfig'
 
 // ---------- api ----------
-import { loadPage, suggestItemSelector, suggestFieldRule, previewList } from '@/api/htmlConfig'
+import { loadPage, suggestItemSelector, suggestFieldRule, previewList, createSource, runSource } from '@/api/htmlConfig'
 
 // ---------- components ----------
 import UrlLoader from '@/components/htmlConfig/UrlLoader.vue'
@@ -144,6 +170,26 @@ const previewData = reactive({
 /** 分页预览状态 */
 const paginationPreviewing = ref(false)
 const paginationPreviewCounts = ref<number[]>([])
+
+/** 保存 / 试跑状态 */
+const saving = ref(false)
+const running = ref(false)
+const savedId = ref<number | null>(null)
+const runResult = ref<{
+  status: string
+  fetched: number
+  unique: number
+  matched: number
+  errors: number
+  durationMs: number
+} | null>(null)
+
+/** 是否可以保存：至少已识别列表项 + 绑定 title + url */
+const canSave = computed(() =>
+  state.list.itemSelector != null
+  && (state.listFields.title?.length ?? 0) > 0
+  && (state.listFields.url?.length ?? 0) > 0
+)
 
 // ===================================================================
 // 常量
@@ -576,6 +622,86 @@ async function onPaginationPreview(): Promise<void> {
     paginationPreviewing.value = false
   }
 }
+
+// ===================================================================
+// 保存配置 + 立即试跑（阶段 B）
+// ===================================================================
+
+/** 从当前 SelectionState 组装 SaveSourceRequest */
+function buildSaveRequest(): SaveSourceRequest {
+  const listRules: FieldRuleDraft[] = []
+  const names = Object.keys(state.listFields) as ListFieldName[]
+  for (const fn of names) {
+    const rules = state.listFields[fn]
+    if (rules) listRules.push(...rules)
+  }
+
+  const detailRules: FieldRuleDraft[] = []
+  if (state.detail.enabled) {
+    const dnames = Object.keys(state.detail.fields) as DetailFieldName[]
+    for (const fn of dnames) {
+      const rules = state.detail.fields[fn]
+      if (rules) detailRules.push(...rules)
+    }
+  }
+
+  return {
+    dataSource: {
+      name: state.meta.sourceName || state.list.pageTitle || state.list.url,
+      cronExpr: state.meta.sourceCron,
+      enabled: true,
+    },
+    listPage: {
+      url: state.list.url,
+      itemSelector: state.list.itemSelector!,
+      headers: state.list.headers,
+      timeoutMs: state.list.timeoutMs,
+    },
+    listRules,
+    detailPage: state.detail.enabled
+      ? { headers: state.detail.headers, timeoutMs: state.detail.timeoutMs }
+      : null,
+    detailRules: detailRules.length > 0 ? detailRules : null,
+    paginationRule: state.pagination.mode === 'URL_TEMPLATE'
+      ? { mode: 'URL_TEMPLATE', urlTemplate: state.pagination.urlTemplate || undefined, startPage: state.pagination.startPage, maxPages: state.pagination.maxPages }
+      : { mode: 'NONE', urlTemplate: undefined, startPage: 1, maxPages: 1 },
+  }
+}
+
+async function onSave(): Promise<void> {
+  if (!canSave.value) return
+  saving.value = true
+  try {
+    const req = buildSaveRequest()
+    const res = await createSource(req)
+    savedId.value = res.id
+    ElMessage.success('配置已保存，数据源 ID: ' + res.id)
+  } catch (e: unknown) {
+    const err = e as { code?: string; message?: string; errors?: Array<{ field: string; message: string }> }
+    if (err.errors && err.errors.length > 0) {
+      ElMessage.error(err.errors.map(er => er.message).join('；'))
+    } else {
+      ElMessage.error(err.message || '保存失败')
+    }
+  } finally {
+    saving.value = false
+  }
+}
+
+async function onRun(): Promise<void> {
+  if (savedId.value === null) return
+  running.value = true
+  runResult.value = null
+  try {
+    const data = await runSource(savedId.value)
+    runResult.value = data
+    ElMessage.success(`试跑完成：抓取 ${data.fetched} 条，入库 ${data.unique} 条，匹配 ${data.matched} 条`)
+  } catch (e: unknown) {
+    ElMessage.error((e as Error).message || '试跑失败')
+  } finally {
+    running.value = false
+  }
+}
 </script>
 
 <style scoped>
@@ -588,4 +714,11 @@ async function onPaginationPreview(): Promise<void> {
 .left-panel { width: 200px; flex-shrink: 0; background: #fff; border-right: 1px solid #e4e7ed; overflow-y: auto; }
 .center-panel { flex: 1; background: #fafafa; overflow: hidden; display: flex; flex-direction: column; }
 .right-panel { width: 360px; flex-shrink: 0; background: #fff; border-left: 1px solid #e4e7ed; overflow-y: auto; display: flex; flex-direction: column; }
+.action-buttons { display: flex; align-items: center; gap: 6px; margin-left: auto; margin-right: 12px; }
+.run-result-panel { padding: 12px 16px; border-top: 1px solid #e4e7ed; background: #fafdf6; }
+.run-stats { display: flex; gap: 16px; font-size: 13px; flex-wrap: wrap; }
+.status-ok { color: #67c23a; }
+.status-err { color: #f56c6c; }
+.err-count { color: #f56c6c; }
+.section-title { margin: 0 0 6px 0; font-size: 13px; font-weight: 600; color: #303133; }
 </style>
